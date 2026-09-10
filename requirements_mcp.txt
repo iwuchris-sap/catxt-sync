@@ -1,0 +1,9 @@
+# CATXT Sync — MCP Connector dependencies
+# Install with:  pip install -r requirements_mcp.txt
+#
+# These are IN ADDITION to requirements_app.txt.
+# starlette and uvicorn are the only runtime dependencies for the MCP server.
+# They are also installed transitively by "pip install mcp" if you prefer.
+
+starlette>=0.36.0
+uvicorn>=0.27.0

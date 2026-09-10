@@ -1,0 +1,23 @@
+# Private / personal data — never commit these
+config.json
+.auth_cookies.json
+.owa_session.json
+.processed_events.json
+catxt_sync.log
+
+# Build output
+dist/
+build/
+*.spec.bak
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# PyInstaller
+*.manifest
+
+# Editor
+.vscode/
+.idea/

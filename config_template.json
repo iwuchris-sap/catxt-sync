@@ -1,0 +1,30 @@
+{
+  "_setup_done": false,
+  "_readme": "Add keyword and email rules below. The first matching rule wins. Keywords match anywhere in the meeting subject (case-insensitive). Email patterns match anywhere in the organiser's email address.",
+  "default_mapping": {
+    "label": "Default Cost Center",
+    "wbs": "",
+    "rproj": "",
+    "rkostl": "",
+    "tasktype": "",
+    "tasklevel": "",
+    "_note": "Used when no keyword/email rule matches."
+  },
+  "wbs_mappings": [
+    {
+      "_note": "Example entry — copy and fill in for each of your projects. Delete this example when done.",
+      "label": "Customer Name — Project Description",
+      "wbs": "CPS.XXXXXXXX.XXXXX",
+      "rproj": "000000000000000001234567",
+      "keywords": [
+        "customer name",
+        "short alias"
+      ],
+      "email_patterns": [
+        "@customer.com"
+      ],
+      "tasktype": "CFPP",
+      "tasklevel": "G3"
+    }
+  ]
+}
