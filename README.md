@@ -107,7 +107,7 @@ Download `CATXT.zip` from [Releases](../../releases), extract, and run `CATXT.ex
 
 **From skills.cloud.sap:**
 ```
-npx skills add <your-github-username>/catxt-sync
+npx skills add iwuchris-sap/catxt-sync
 ```
 
 **Or install from file:**
