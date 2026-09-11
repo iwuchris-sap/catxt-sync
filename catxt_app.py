@@ -100,6 +100,10 @@ class CatxtApp:
         self._root: tk.Tk | None  = None
         self._icon_idle: "Image.Image | None"    = None
         self._icon_syncing: "Image.Image | None" = None
+        # Timestamp of the last "session expired" toast — used to suppress
+        # repeated hourly notifications when the user hasn't re-authenticated.
+        # Reset to None whenever a background worker gets a live session.
+        self._last_session_expiry_notify: "datetime | None" = None
 
     # ── Entry point ───────────────────────────────────────────────────────────
 
@@ -142,6 +146,15 @@ class CatxtApp:
         self._start_mcp_server()
 
         log.info("CATXT Sync tray app started.")
+
+        # Write a PID lock file so the MCP server can reliably detect whether
+        # the tray app is running — process-name checks are unreliable when
+        # launched via pythonw.exe (the name in tasklist is just "pythonw.exe").
+        _PID_FILE = Path(__file__).parent / "catxt_app.pid"
+        try:
+            _PID_FILE.write_text(str(os.getpid()))
+        except Exception:
+            pass
 
         # If launched by the Windows Task Scheduler (--scheduled flag), trigger
         # the smart scheduled sync automatically after the tray is ready.
@@ -669,6 +682,11 @@ class CatxtApp:
                 return
 
         log.info("CATXT Sync shutting down.")
+        # Remove PID lock file so the MCP server won't report a stale "running" state
+        try:
+            (Path(__file__).parent / "catxt_app.pid").unlink(missing_ok=True)
+        except Exception:
+            pass
         try:
             if self._icon:
                 self._icon.stop()
@@ -755,6 +773,9 @@ class CatxtApp:
             log.debug("Auto-sync tick: sync already in progress — skipping.")
         self._root.after(self._AUTO_SYNC_INTERVAL_MS, self._auto_sync_tick)
 
+    # How long to wait before re-sending the "session expired" toast.
+    _SESSION_EXPIRY_NOTIFY_COOLDOWN_H = 4
+
     def _background_staffing_worker(self):
         """Hourly background staffing check — silent, TTL-gated, no notifications.
         Skips entirely if there is no live session so no browser window is opened."""
@@ -762,8 +783,27 @@ class CatxtApp:
             self._set_icon_syncing(True)
             session = core.get_or_refresh_session(cookies_only=True)
             if session is None:
-                log.debug("Background staffing: no valid session — skipping.")
+                now = datetime.now()
+                cooldown = timedelta(hours=self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H)
+                if (
+                    self._last_session_expiry_notify is None
+                    or (now - self._last_session_expiry_notify) >= cooldown
+                ):
+                    self._last_session_expiry_notify = now
+                    log.info("Background staffing: SAP session expired — notifying user.")
+                    self._gui_queue.put(lambda: notify(
+                        "CATXT — Session Expired",
+                        "Your SAP session has expired.\n"
+                        "Right-click the tray icon → Sync Today to re-authenticate.",
+                    ))
+                else:
+                    log.debug(
+                        "Background staffing: session expired — notification suppressed "
+                        f"(cooldown {self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H}h)."
+                    )
                 return
+            # Session is live — reset the expiry cooldown so the next expiry notifies promptly
+            self._last_session_expiry_notify = None
             config = core.load_config()
             csrf   = core.get_csrf_token(session)
             # force=False so the 1-hour TTL prevents redundant API calls

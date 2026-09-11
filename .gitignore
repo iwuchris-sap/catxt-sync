@@ -4,6 +4,7 @@ config.json
 .owa_session.json
 .processed_events.json
 catxt_sync.log
+catxt_app.pid
 
 # Build output
 dist/

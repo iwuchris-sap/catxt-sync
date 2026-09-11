@@ -95,24 +95,51 @@ def _tool_get_mappings(args: dict) -> str:
         }
         for m in config.get("wbs_mappings", [])
     ]
-    return json.dumps(result, indent=2)
+    return json.dumps({
+        "mappings":          result,
+        "excluded_keywords": config.get("_excluded_keywords", []),
+    }, indent=2)
+
+
+def _is_excluded(subject: str, config: dict) -> tuple[bool, str]:
+    """Return (True, matched_keyword) if the subject matches any excluded keyword."""
+    subject_lc = subject.lower()
+    for kw in config.get("_excluded_keywords", []):
+        if kw.lower() in subject_lc:
+            return True, kw
+    return False, ""
 
 
 def _tool_suggest_mapping(args: dict) -> str:
     subject         = args.get("subject", "")
     organiser_email = args.get("organiser_email", "")
     config = core.load_config()
+
+    # Check exclusion list first — excluded events should never be posted
+    excluded, matched_kw = _is_excluded(subject, config)
+    if excluded:
+        return json.dumps({
+            "excluded":        True,
+            "matched_keyword": matched_kw,
+            "message": (
+                f"This event matches the excluded keyword '{matched_kw}' "
+                "and should not be posted to CATXT."
+            ),
+        })
+
     event  = {"subject": subject, "organiser_email": organiser_email}
     mapping = core._find_specific_mapping(event, config)
     if mapping is None:
         default = config.get("default_mapping", {})
         return json.dumps({
+            "excluded": False,
             "matched":  False,
             "fallback": "default_cost_centre",
             "label":    default.get("label", "Default Cost Centre"),
             "rkostl":   default.get("rkostl", ""),
         })
     return json.dumps({
+        "excluded": False,
         "matched":  True,
         "label":    mapping.get("label", ""),
         "wbs":      mapping.get("wbs", ""),
@@ -408,15 +435,44 @@ def _tool_clear_sync_history(args: dict) -> str:
 
 
 def _tray_app_running() -> bool:
-    """Return True if catxt_app.py (or catxt.exe) process is currently running."""
+    """Return True if catxt_app.py (or catxt.exe) process is currently running.
+
+    Detection order (fastest / most reliable first):
+
+    1. PID lock file (catxt_app.pid) — written by catxt_app.py on startup and
+       deleted on clean exit.  We verify the PID is still alive so a stale file
+       from a crash doesn't give a false positive.
+    2. tasklist check for catxt.exe — covers the compiled/PyInstaller build.
+
+    We deliberately avoid checking for 'pythonw.exe' by name alone because that
+    process name is shared by every pythonw-hosted script on the machine.
+    """
     import subprocess
+
+    # ── 1. PID lock file ──────────────────────────────────────────────────────
+    pid_file = _HERE / "catxt_app.pid"
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            # tasklist /FI returns a header + one data row if the PID is alive
+            out = subprocess.check_output(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8", errors="ignore").strip()
+            if out:        # any output means the PID is alive
+                return True
+            # PID is gone — clean up the stale lock file
+            pid_file.unlink(missing_ok=True)
+        except Exception:
+            pass   # fall through to exe check
+
+    # ── 2. Compiled exe (catxt.exe) ───────────────────────────────────────────
     try:
-        # tasklist is available on all Windows versions without extra deps
         out = subprocess.check_output(
             ["tasklist", "/FO", "CSV", "/NH"],
             stderr=subprocess.DEVNULL,
         ).decode("utf-8", errors="ignore").lower()
-        return "catxt.exe" in out or "catxt_app" in out
+        return "catxt.exe" in out
     except Exception:
         return False
 
