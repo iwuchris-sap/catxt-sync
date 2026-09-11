@@ -200,6 +200,10 @@ def _tool_post_time_entry(args: dict) -> str:
     description       = args.get("description", "")
     tasktype_override = args.get("tasktype", "")
     subtype           = args.get("subtype", "")
+    # Optional: Outlook calendar event ID. When provided and the post succeeds,
+    # the event is marked as processed so the tray app's scheduled sync won't
+    # re-present it in the review dialog.
+    calendar_event_id = args.get("calendar_event_id", "")
 
     session = _get_session()
     config  = core.load_config()
@@ -251,6 +255,23 @@ def _tool_post_time_entry(args: dict) -> str:
 
     ok = core.post_activity(session, csrf, event, mapping, d)
     if ok:
+        # Mark the calendar event as processed so the tray app's scheduled
+        # sync doesn't re-present it in the review dialog.
+        if calendar_event_id:
+            try:
+                processed = core.load_processed()
+                day_key   = str(d)
+                ids       = processed.setdefault(day_key, [])
+                if calendar_event_id not in ids:
+                    ids.append(calendar_event_id)
+                    core.save_processed(processed)
+                    log.debug(
+                        f"post_time_entry: marked {calendar_event_id!r} "
+                        f"as processed for {day_key}"
+                    )
+            except Exception as exc:
+                log.warning(f"post_time_entry: could not update processed cache: {exc}")
+
         return json.dumps({
             "success":     True,
             "date":        target_date,
@@ -691,6 +712,16 @@ _TOOLS = {
                 "subtype": {
                     "type": "string",
                     "description": "Optional subtype code (MANAGER, WEBEX, …). Leave blank if not needed.",
+                },
+                "calendar_event_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional Outlook calendar event ID (from list_calendar_events or "
+                        "get_calendar_event). When provided and the post succeeds, the event "
+                        "is marked as processed so the tray app's scheduled sync won't "
+                        "re-present it in the review dialog. Always pass this when posting "
+                        "a calendar-derived entry."
+                    ),
                 },
             },
             "required": ["target_date", "project_label", "hours", "description"],
