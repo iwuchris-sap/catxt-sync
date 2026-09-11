@@ -64,9 +64,27 @@ if errorlevel 1 (
     echo         schtasks /run /tn "CATXT MCP Server"
 )
 
+rem ── Add tray app to Windows startup folder ───────────────────
+echo.
+echo [4/5] Adding CATXT Sync to Windows startup...
+echo       (Keeps your SAP session alive — tray app starts automatically at login)
+powershell -NoProfile -Command ^
+  "$ws = New-Object -ComObject WScript.Shell; ^
+   $sc = $ws.CreateShortcut([Environment]::GetFolderPath('Startup') + '\CATXT Sync.lnk'); ^
+   $sc.TargetPath = 'wscript.exe'; ^
+   $sc.Arguments = '\"%SCRIPT_DIR%\launch_catxt.vbs\"'; ^
+   $sc.IconLocation = '%SCRIPT_DIR%\assets\catxt.ico'; ^
+   $sc.Description = 'CATXT Sync Tray App'; ^
+   $sc.Save()" >nul 2>&1
+if errorlevel 1 (
+    echo       WARNING: Could not add to startup folder.
+) else (
+    echo       Added to startup. CATXT Sync will launch automatically at next login.
+)
+
 rem ── Create Desktop shortcut ───────────────────────────────────
 echo.
-echo [4/4] Creating Desktop shortcut...
+echo [5/5] Creating Desktop shortcut...
 set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 powershell -NoProfile -Command ^
@@ -87,6 +105,7 @@ echo  Next steps:
 echo    1. Open config.json and add your WBS codes / project mappings
 echo    2. Double-click "CATXT Sync" on your Desktop to launch
 echo    3. Right-click the tray icon to run a sync or open settings
+echo    4. CATXT Sync will auto-start at next Windows login
 echo ============================================================
 echo.
 pause
