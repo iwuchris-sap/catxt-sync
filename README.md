@@ -60,13 +60,13 @@ Joule Work Desktop
 
 | Tool | Type | Purpose |
 |---|---|---|
-| `get_mappings` | Read | All configured WBS project rules |
-| `suggest_mapping` | Read | Match a meeting subject to a project |
+| `get_mappings` | Read | All configured WBS project rules + excluded keywords list |
+| `suggest_mapping` | Read | Match a meeting subject/email to a project; returns `excluded: true` for events that should never be posted |
 | `get_existing_entries` | Read | What's already posted in CATXT for a date |
 | `get_staffing_assignments` | Read | Live project list from CATXT Staffing API |
 | `get_sync_status` | Read | Which days have been processed |
 | `get_tray_status` | Read | Whether the tray app is running |
-| `post_time_entry` | Write | Post a single time entry to CATXT |
+| `post_time_entry` | Write | Post a single time entry to CATXT; accepts optional `calendar_event_id` to mark the event as processed |
 | `add_keyword` | Write | Add a keyword/email rule to a project mapping |
 | `remove_keyword` | Write | Remove a keyword/email rule |
 | `clear_sync_history` | Write | Clear processed-event cache to retry a day |
@@ -123,6 +123,8 @@ On first use, Joule will prompt you to log in. A browser window opens, completes
 
 WBS project mappings are stored in `config.json` next to the tray app. You can manage them conversationally through Joule (add/remove keywords) or edit the file directly.
 
+**`_excluded_keywords`** — calendar events whose subject contains any of these phrases (case-insensitive) are silently skipped by both the tray app and the Joule skill. Add entries like `"vacation"`, `"sick day"`, or `"administrative tasks"` to keep non-billable calendar blocks out of CATXT automatically.
+
 ```json
 {
   "wbs_mappings": [
@@ -139,7 +141,14 @@ WBS project mappings are stored in `config.json` next to the tray app. You can m
   "default_mapping": {
     "label": "Default Cost Centre",
     "rkostl": "0800012345"
-  }
+  },
+  "_excluded_keywords": [
+    "administrative tasks",
+    "vacation",
+    "sick day",
+    "catxt",
+    "time entry"
+  ]
 }
 ```
 
