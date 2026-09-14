@@ -918,6 +918,48 @@ class CatxtApp:
 
             core.save_processed(processed)
 
+            # ── Cross-check pending events against CATXT ───────────────────────
+            # Events may have been posted via Joule (or manually in CATXT) without
+            # the tray app knowing. Fetch existing CATXT entries for each affected
+            # day and silently drop any pending event whose description is already
+            # there — marking it processed so it won't reappear.
+            if pending_dialog:
+                from collections import defaultdict as _dd2
+                catxt_descs: dict = {}   # date_str → set of lowercased descriptions
+                for _d, _ev, _mp, _reason in pending_dialog:
+                    _key = str(_d)
+                    if _key not in catxt_descs:
+                        try:
+                            _entries = core.get_existing_entries(session, _d)
+                            catxt_descs[_key] = {
+                                e.get("Ltxa1", "").strip().lower()
+                                for e in _entries
+                            }
+                        except Exception as _exc:
+                            log.debug(f"Cross-check: could not fetch CATXT entries for {_key}: {_exc}")
+                            catxt_descs[_key] = set()
+
+                filtered: list = []
+                newly_processed = False
+                for _d, _ev, _mp, _reason in pending_dialog:
+                    _subj = _ev.get("subject", "")[:40].strip().lower()
+                    if _subj and _subj in catxt_descs.get(str(_d), set()):
+                        # Already in CATXT — mark processed and skip review
+                        _ev_id = _ev.get("id") or (_ev.get("subject", "") + _ev.get("start", ""))
+                        _day_ids = processed.setdefault(str(_d), [])
+                        if _ev_id not in _day_ids:
+                            _day_ids.append(_ev_id)
+                            newly_processed = True
+                        log.info(
+                            f"Scheduled sync: '{_ev.get('subject', '')}' on {_d} "
+                            "already in CATXT — marked processed, skipping review."
+                        )
+                    else:
+                        filtered.append((_d, _ev, _mp, _reason))
+                pending_dialog = filtered
+                if newly_processed:
+                    core.save_processed(processed)
+
             # ── Release sync lock after Phase 1 so manual syncs can proceed ───
             self._sync_lock.release()
             _lock_released = True
