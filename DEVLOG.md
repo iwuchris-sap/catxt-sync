@@ -74,6 +74,10 @@ The `Msgtxt` field in the response body contains the human-readable error (e.g.
 - `"G3"` is hardcoded as the default for WBS entries (this user's grade).
 - The correct value per project comes from the Staffing response.
 - **Must be read from Staffing data before sharing with other users.**
+- **`Tasktype = ICON` requires `Tasklevel = "K1"`** (ZCATSXT-225). The backend rejects ICON
+  entries with any other value including `""` or `"NONE"`. Other CC types accept `""`.
+  Fixed in `catxt_core.py` and `catxt_sync.py` — the fallback now sends `"K1"` when
+  `tasktype == "ICON"` and no explicit `tasklevel` is set in the mapping.
 
 ---
 
@@ -123,3 +127,32 @@ The plan for the packaged Windows app (new conversation):
 7. Optional: auto-run at 5pm via Windows Task Scheduler
 
 Start the new conversation by reading `catxt_sync.py`, `config.json`, and this file.
+
+---
+
+## Changelog
+
+### 2026-09-15
+- **Fix: `Tasklevel = "K1"` required for `Tasktype = ICON` CC entries (ZCATSXT-225)**
+  - CATXT rejects ICON entries unless `Tasklevel = "K1"`. The old fallback sent `"NONE"`
+    (in `catxt_core.py`) or `""` (in `catxt_sync.py`), both rejected by the backend.
+  - Fixed in `catxt_core.py` (`post_time_entry` MCP path) and `catxt_sync.py` (auto-sync path).
+  - Other CC types continue to use `""`. WBS/SD entries unchanged (`"G3"` or mapping override).
+
+### 2026-09-11
+- **Fix: duplicate review dialog after Joule posts entries**
+  - `post_time_entry` now accepts `calendar_event_id` and writes it to `.processed_events.json`.
+  - Tray app auto-sync skips events already marked processed — no re-post attempt, no review dialog.
+- **Fix: `suggest_mapping` now checks exclusion list before returning a result**
+  - Returns `excluded: true` + `matched_keyword` for events matching `_excluded_keywords`.
+  - `get_mappings` now includes `excluded_keywords` in the response.
+- **Fix: organizer email two-pass lookup in skill**
+  - `list_calendar_events` returns display names, not email addresses.
+  - Skill now calls `suggest_mapping(subject)` first; only fetches full event detail via
+    `get_calendar_event` for unmatched events, then retries with the real organizer email.
+- **Fix: tray app status detection via PID lock file**
+  - `catxt_app.py` writes `catxt_app.pid` on startup, deletes on quit.
+  - `_tray_app_running()` validates the PID via `tasklist /FI` — replaces the broken
+    process-name check that missed `pythonw.exe`-launched instances.
+- **Fix: session-expired toast throttled to once per 4 hours** (was every hourly tick)
+- **Add: `create_shortcuts.bat`** — creates Desktop + Startup folder shortcuts without PowerShell.
