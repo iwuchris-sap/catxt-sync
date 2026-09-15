@@ -15,7 +15,7 @@ CATXT Sync connects your Outlook calendar to SAP CATXT (CAT2 / My Timesheet) thr
 
 > *"What have I posted this week?"* → Breakdown by project with total hours and any gaps.
 
-> *"Add 'Keurig planning' as a keyword for the KDP project"* → Keyword rule saved immediately, takes effect on the next sync.
+> *"Add 'Acme planning' as a keyword for the Acme Corp project"* → Keyword rule saved immediately, takes effect on the next sync.
 
 > *"The tray app isn't running — start it"* → Joule launches it for you.
 
@@ -27,7 +27,7 @@ CATXT Sync connects your Outlook calendar to SAP CATXT (CAT2 / My Timesheet) thr
 | **Check status** | "What have I posted today?", "how many hours am I missing this week?" |
 | **Sync status** | "Which days haven't been synced?", "has last Tuesday been processed?" |
 | **Project rules** | "What keywords do I have for Lincoln?", "which project does 'Sauder review' map to?" |
-| **Manage keywords** | "Add 'spin master kickoff' as a keyword for Spin Master", "remove @oldclient.com from Solventum" |
+| **Manage keywords** | "Add 'customer kickoff' as a keyword for Acme Corp", "remove @oldclient.com from Northstar Retail" |
 | **Retry failed days** | "Last Wednesday's sync failed — retry it" |
 | **Tray app control** | "Is CATXT running?", "start the tray app" |
 
@@ -177,3 +177,4 @@ The `SKILL.md` + MCP server pattern is the reusable building block. The CATXT-sp
 ## License
 
 MIT
+T

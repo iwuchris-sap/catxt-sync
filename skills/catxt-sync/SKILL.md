@@ -183,7 +183,7 @@ When the user asks "is CATXT running?", "start the tray app", or when a session 
 
   | Meeting | Project | Hours |
   |---------|---------|-------|
-  | KDP Weekly call | Keurig Dr Pepper — TPE | 1.0h |
+  | Customer Weekly call | Acme Corp — Trading Partner | 1.0h |
   | Team standup | Default Cost Centre (MEET) | 0.5h |
 
 - After posting, always confirm with a summary: "Posted 3 entries, 7.5h total. 0.5h still unaccounted for."

@@ -22,8 +22,8 @@ posts them as time entries to SAP CATXT (ZCATSXTMO OData v2 service) automatical
 
 ### CATXT OData service
 - Base URL (via launchpad proxy):
-  `https://sapit-fulfillment-prod-zebra.launchpad.cfapps.eu10.hana.ondemand.com`
-  `/44815ef2-21db-4bf3-9dbc-9fbd52e91a85.sapcomcatsxtv2catsxtui5.sapcomcatsxtv2`
+  `https://[your-tenant].launchpad.cfapps.[region].hana.ondemand.com`
+  `/[app-guid].sapcomcatsxtv2catsxtui5.sapcomcatsxtv2`
   `/sap/opu/odata/sap/ZCATSXTMO`
 - CSRF token fetched via HEAD request before any writes.
 
@@ -42,7 +42,7 @@ Required Activity line fields (will silently fail without these):
 | `Rproj` | 24-char internal WBS number for project entries; `"000000000000000000000000"` (24 zeros) for CC |
 | `Obart` | `"PR"` for WBS, `"KS"` for cost centre |
 | `Objnr` | `"PR" + rproj[-8:]` for WBS (e.g. `"PR01386783"`); `"KS0001" + rkostl` for CC |
-| `Zcpr_extid` | CPR project root ID (e.g. `"CPS.40012580"`) — derived from `wbs` field in config |
+| `Zcpr_extid` | CPR project root ID (e.g. `"CPS.40001234"`) — derived from `wbs` field in config |
 | `Zcpr_objgextid` | Full CPR task ID (e.g. `"CPS.40012580.00002"`) — IS the `wbs` field in config |
 | `Zcpr_objtype` | Always `"TTO"` for task objects |
 
@@ -66,7 +66,7 @@ The `Msgtxt` field in the response body contains the human-readable error (e.g.
 - The response includes `Objnr_f`, `Sold2Party`, `Endda` fields useful for labelling.
 
 ### PERNR
-- Currently hardcoded as `PERNR = "01854017"` near the top of `catxt_sync.py`.
+- Currently hardcoded as `PERNR = "01234567"` near the top of `catxt_sync.py`.
 - The `Userinfo` endpoint (called on every run) returns the authenticated user's PERNR.
 - **This must be auto-detected before sharing with other users.**
 

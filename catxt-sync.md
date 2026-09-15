@@ -3,7 +3,7 @@ name: catxt-sync
 description: >-
   SAP CATXT time-tracking assistant. Helps review calendar events, match them to WBS projects, post time entries, and check posting status — all conversationally. Requires the CATXT Sync tray app running locally. Trigger phrases: "post my time entries", "log my hours", "submit CATXT", "what have I posted today", "how many hours left", "what projects am I on", "CATXT", "time tracking", "CAT2".
 version: 1.1.0
-author: SCC Project
+author: iwuchris-sap
 tags:
   - sap
   - time-tracking
@@ -31,7 +31,7 @@ If tools return a session error, use `get_tray_status` to check whether the tray
 
 **`list_calendar_events` does NOT return organizer email addresses — only display names.**
 
-Email-pattern matching (e.g. `@landsend.com`) in `suggest_mapping` requires the real organizer email. If you pass a display name, a fabricated address, or nothing at all, email-pattern rules will silently fail and the event will fall through to the default cost centre even though a correct mapping exists.
+Email-pattern matching (e.g. `@customer.com`) in `suggest_mapping` requires the real organizer email. If you pass a display name, a fabricated address, or nothing at all, email-pattern rules will silently fail and the event will fall through to the default cost centre even though a correct mapping exists.
 
 **Required two-pass approach for every event:**
 
@@ -196,3 +196,4 @@ When the user asks "is CATXT running?", "start the tray app", or when a session 
 - **No mapping found**: "I couldn't match '[meeting name]' to a project — no keyword rules cover it. You can skip it or tell me which project to use."
 - **Post rejected by CATXT**: "CATXT rejected that entry. Check the tray app log (tray icon → View Log) for details."
 - **Over 8h**: "You've already posted [X]h for [date] — that's over the 8h target. Double-check before posting more."
+g more."
