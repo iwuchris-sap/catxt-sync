@@ -1388,9 +1388,18 @@ def save_cookies(cookies: list) -> None:
     COOKIES_FILE.write_text(json.dumps(cookies, indent=2), encoding="utf-8")
 
 
-def authenticate_via_browser() -> list | None:
-    """Open Edge for SSO login, extract session cookies, save and return them."""
-    log.info("Opening browser for CATXT authentication (SSO)...")
+def authenticate_via_browser(headless_only: bool = False) -> list | None:
+    """Open Edge for SSO login, extract session cookies, save and return them.
+
+    headless_only=True: attempt SSO silently using the live Edge profile only.
+    Returns None immediately if the Edge profile is locked or if SSO requires
+    manual interaction (redirected to login page).  Never opens a visible
+    browser window.  Use this for background re-authentication.
+    """
+    log.info(
+        "Opening browser for CATXT authentication (SSO%s)...",
+        ", headless-only" if headless_only else "",
+    )
     cookies = None
 
     with sync_playwright() as p:
@@ -1415,6 +1424,11 @@ def authenticate_via_browser() -> list | None:
             _was_headless = True
             log.info("Auth browser: msedge (live profile, headless)")
         except Exception as profile_err:
+            if headless_only:
+                log.debug(
+                    f"Headless-only auth: Edge profile locked ({profile_err}) — giving up."
+                )
+                return None
             log.info(f"Could not use Edge live profile ({profile_err}) — trying fresh browser.")
 
         # ── Strategy 2 (fallback): visible fresh browser ───────────────────────
@@ -1461,6 +1475,18 @@ def authenticate_via_browser() -> list | None:
             on_login_page = any(d in page.url.lower() for d in _LOGIN_DOMAINS)
             if on_login_page:
                 if _was_headless:
+                    if headless_only:
+                        # Caller requested headless-only — don't open a visible
+                        # browser.  SSO has expired; user interaction is needed.
+                        log.debug(
+                            "Headless-only auth: SSO incomplete (landed on login page) "
+                            "— giving up."
+                        )
+                        try:
+                            context.close()
+                        except Exception:
+                            pass
+                        return None
                     # SSO didn't complete silently — close headless context and
                     # relaunch a visible browser so the user can log in manually.
                     log.info(
@@ -1580,7 +1606,10 @@ def get_csrf_token(session: requests.Session) -> str | None:
     return None
 
 
-def get_or_refresh_session(cookies_only: bool = False) -> requests.Session | None:
+def get_or_refresh_session(
+    cookies_only: bool = False,
+    headless_only: bool = False,
+) -> requests.Session | None:
     """
     Return an authenticated requests.Session, re-authenticating if needed.
     Returns None if authentication fails.
@@ -1588,6 +1617,11 @@ def get_or_refresh_session(cookies_only: bool = False) -> requests.Session | Non
     cookies_only=True: return None instead of opening a browser when no
     valid session exists.  Use this for background/silent operations that
     should not pop up a browser window.
+
+    headless_only=True: attempt a silent SSO re-auth using the live Edge
+    profile (headless).  Returns None if the profile is locked or if SSO
+    requires manual interaction.  Never opens a visible browser window.
+    Implies cookies_only=False — a headless browser attempt IS made.
     """
     cookies = load_cookies()
     session = None
@@ -1600,7 +1634,7 @@ def get_or_refresh_session(cookies_only: bool = False) -> requests.Session | Non
         if cookies_only:
             log.debug("get_or_refresh_session(cookies_only): no valid session — skipping.")
             return None
-        cookies = authenticate_via_browser()
+        cookies = authenticate_via_browser(headless_only=headless_only)
         if not cookies:
             return None
         session = build_session(cookies)
@@ -1871,25 +1905,45 @@ def post_activity(
     rkdauf = mapping.get("rkdauf", "")
     rkdpos = mapping.get("rkdpos", "") if rkdauf else ""
 
+    # Sales-Document mode: Rkdauf present but no WBS/Rproj (e.g. Clorox, Waters)
+    is_sd = bool(rkdauf and not rproj)
+
     tasktype = mapping.get("tasktype", "")
     if rproj:
         # Project entries must always use CFPP regardless of what the review
         # dialog dropdown shows — override here as the authoritative safety net.
         tasktype = "CFPP"
+    elif is_sd:
+        # SD entries are customer-billable time — CFPP is correct.
+        # Honour any explicit mapping override, but default to CFPP.
+        if not tasktype:
+            tasktype = "CFPP"
     elif not tasktype:
         tasktype = "MEET"
 
     taskcomponent = mapping.get("taskcomponent", "")
     if not taskcomponent:
-        taskcomponent = "WORKHRS" if rproj else "WORKSTAT"
+        # All entries record actual work hours — use WORKHRS universally.
+        # Historical note: the original HAR was captured from a MEET/TEAMMEET
+        # CC entry that happened to work with WORKSTAT, but the CATXT UI
+        # always selects "Work Hrs" (WORKHRS) regardless of task type.
+        # ICON ("Internal projectwork") in particular requires WORKHRS and
+        # silently rejects WORKSTAT.
+        taskcomponent = "WORKHRS"
 
-    skostl = KOSTL if rproj else ""   # user's home cost centre, auto-detected from Userinfo
+    # WBS and SD entries need the user's home cost centre as the sender object.
+    skostl = KOSTL if (rproj or is_sd) else ""
     # HAR confirmed: CC entries send Rproj="" not 24-zeros
     rproj_val = rproj
 
     if rproj:
         obart = "PR"
         objnr = "PR" + rproj[-8:]
+    elif is_sd:
+        # Sales Document receiving object: Obart="SD",
+        # Objnr = "SD" + 10-digit order + 6-digit item (rkdauf + rkdpos).
+        obart = "SD"
+        objnr = "SD" + rkdauf + rkdpos
     else:
         obart = "KS"
         objnr = "KS0001" + rkostl
@@ -1900,6 +1954,7 @@ def post_activity(
         zcpr_extid     = wbs.rsplit(".", 1)[0] if "." in wbs else wbs
         zcpr_objtype   = "TTO"
     else:
+        # SD and CC entries don't carry CPS project reference fields.
         zcpr_objgextid = zcpr_extid = zcpr_objtype = ""
 
     # Sub-type (Zzsubtype) — optional, "" is valid
@@ -1932,9 +1987,13 @@ def post_activity(
         "Waers":          "",
         "Catsamount":     "0.00",
         "Tasklevel":      (
-            mapping.get("tasklevel", "G3") if rproj else mapping.get("tasklevel", "")
+            # WBS / SD entries: use mapping's tasklevel, default "G3".
+            mapping.get("tasklevel", "G3") if (rproj or is_sd)
+            # CC entries: ICON requires "K1" (ZCATSXT-225); other types accept "".
+            # "NONE" was the old fallback but is rejected by the backend — never send it.
+            else (mapping.get("tasklevel") or ("K1" if tasktype == "ICON" else ""))
         ),
-        "Zz_location":    mapping.get("zz_location", "R") if rproj else "",
+        "Zz_location":    mapping.get("zz_location", "R") if (rproj or is_sd) else "",
         "Zzsubtype":      zzsubtype,    # HAR: new field, sub-type code e.g. "TEAMMEET"
         "Obart":          obart,
         "Objnr":          objnr,
@@ -1970,7 +2029,7 @@ def post_activity(
     log.info(
         f"  →  Posting: {event['subject'][:50]} | "
         f"tasktype={tasktype} zzsubtype={zzsubtype} | "
-        f"{'WBS ' + rproj[-8:] if rproj else 'CC ' + rkostl} | "
+        f"{'WBS ' + rproj[-8:] if rproj else ('SO ' + rkdauf.lstrip('0') + '/' + rkdpos.lstrip('0') if is_sd else 'CC ' + rkostl)} | "
         f"{event['duration_hours']}h"
     )
     cs  = "changeset_catxt"
@@ -2050,6 +2109,31 @@ def post_activity(
 
                 except Exception:
                     pass
+
+                # Catch silent validation rejections: SAP returns Zzmoberrflag="V"
+                # on the echoed-back entry when it refuses to create the new one
+                # (e.g. invalid tasktype/subtype for the target cost centre or project).
+                # This fires even when existing_taskcounters is None — no pre-fetch needed.
+                try:
+                    if activity_results:
+                        mob_flag   = activity_results[0].get("Zzmoberrflag", "")
+                        resp_tc    = activity_results[0].get("Taskcounter", "")
+                        resp_ltxa1 = activity_results[0].get("Ltxa1", "")[:40]
+                        resp_type  = activity_results[0].get("Tasktype", "")
+                        if mob_flag == "V":
+                            log.error(
+                                f"  ✗  {event['subject'][:50]} — silently rejected "
+                                f"(Zzmoberrflag=V); backend returned existing entry "
+                                f"(Taskcounter={resp_tc}, '{resp_ltxa1}', {resp_type}). "
+                                "Likely invalid tasktype/subtype for this CC or project."
+                            )
+                            if msgtxt:
+                                log.error(f"      Backend said: [{msgno}] {msgtxt}")
+                            log.error(f"      ActivityLine: {json.dumps(activity_line)}")
+                            return False
+                except Exception:
+                    pass
+
                 log.info(
                     f"  ✓  {event['subject'][:50]}  "
                     f"({event['duration_hours']}h)  →  {mapping['label']}"

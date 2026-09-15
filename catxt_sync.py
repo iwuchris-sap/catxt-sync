@@ -753,7 +753,8 @@ def post_activity(
         "Catsamount":    "0.00",
         # Tasklevel required for WBS/CFPP entries. Default "G3" (matches existing records).
         # Override per-mapping via "tasklevel" key in config.
-        "Tasklevel":     mapping.get("tasklevel", "G3") if rproj else mapping.get("tasklevel", ""),
+        # ICON tasktype requires K1 (ZCATSXT-225); other CC entries use "" (accepted by backend).
+        "Tasklevel":     mapping.get("tasklevel", "G3") if rproj else (mapping.get("tasklevel") or ("K1" if tasktype == "ICON" else "")),
         # Zz_location required for WBS/CFPP entries. Default "R" (Remote).
         # Override per-mapping via "zz_location" key in config.
         "Zz_location":   mapping.get("zz_location", "R") if rproj else "",
