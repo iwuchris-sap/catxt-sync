@@ -84,8 +84,9 @@ def _get_session():
 
 def _tool_get_mappings(args: dict) -> str:
     config = core.load_config()
-    result = [
-        {
+    result = []
+    for m in config.get("wbs_mappings", []):
+        entry: dict = {
             "label":          m.get("label", ""),
             "wbs":            m.get("wbs", ""),
             "rproj":          m.get("rproj", ""),
@@ -93,10 +94,35 @@ def _tool_get_mappings(args: dict) -> str:
             "email_patterns": m.get("email_patterns", []),
             "tasktype":       m.get("tasktype", ""),
         }
-        for m in config.get("wbs_mappings", [])
+        # Expose Sales-Document fields so the model knows this is an SO project
+        rkdauf = m.get("rkdauf", "")
+        if rkdauf:
+            entry["rkdauf"]        = rkdauf
+            entry["rkdpos"]        = m.get("rkdpos", "")
+            entry["receiving_type"] = "sales_order"
+        elif m.get("rproj") and m.get("rproj", "").strip("0"):
+            entry["receiving_type"] = "wbs_project"
+        else:
+            entry["receiving_type"] = "cost_centre"
+        result.append(entry)
+    # Also expose auto_mappings (CC-only keyword rules) so the model can see
+    # and use them — these are the entries that suggest_mapping can return but
+    # that previously had no corresponding project_label in post_time_entry.
+    auto = [
+        {
+            "label":          am.get("label", am.get("keyword", "")),
+            "keyword":        am.get("keyword", ""),
+            "tasktype":       am.get("tasktype", ""),
+            "subtype":        am.get("zzsubtype", ""),
+            "rkostl":         am.get("rkostl", ""),
+            "ltxa1":          am.get("ltxa1", ""),
+            "receiving_type": "cost_centre",
+        }
+        for am in config.get("auto_mappings", [])
     ]
     return json.dumps({
         "mappings":          result,
+        "auto_mappings":     auto,
         "excluded_keywords": config.get("_excluded_keywords", []),
     }, indent=2)
 
@@ -138,14 +164,40 @@ def _tool_suggest_mapping(args: dict) -> str:
             "label":    default.get("label", "Default Cost Centre"),
             "rkostl":   default.get("rkostl", ""),
         })
-    return json.dumps({
-        "excluded": False,
-        "matched":  True,
-        "label":    mapping.get("label", ""),
-        "wbs":      mapping.get("wbs", ""),
-        "rproj":    mapping.get("rproj", ""),
-        "tasktype": mapping.get("tasktype", ""),
-    })
+    rproj_raw = mapping.get("rproj", "")
+    rkdauf    = mapping.get("rkdauf", "")
+    # All-zero rproj means CC-only (no WBS assigned)
+    rproj_real = rproj_raw if (rproj_raw and rproj_raw.strip("0")) else ""
+
+    if rkdauf:
+        receiving_type = "sales_order"
+    elif rproj_real:
+        receiving_type = "wbs_project"
+    else:
+        receiving_type = "cost_centre"
+
+    result: dict = {
+        "excluded":      False,
+        "matched":       True,
+        "label":         mapping.get("label", ""),
+        "project_label": mapping.get("label", ""),  # pass this to post_time_entry
+        "receiving_type": receiving_type,
+        "tasktype":      mapping.get("tasktype", ""),
+        "subtype":       mapping.get("zzsubtype", ""),   # zzsubtype for post_time_entry
+        "rkostl":        mapping.get("rkostl", ""),
+        "rproj":         rproj_real,      # empty string when CC-only, not 24 zeros
+        "wbs":           mapping.get("wbs", ""),
+        "ltxa1":         mapping.get("ltxa1", ""),  # canonical description override
+    }
+    if rkdauf:
+        result["rkdauf"] = rkdauf
+        result["rkdpos"] = mapping.get("rkdpos", "")
+    if receiving_type == "cost_centre":
+        result["note"] = (
+            "This is a cost-centre entry (no WBS).  "
+            "Use project_label exactly as shown and pass subtype to post_time_entry."
+        )
+    return json.dumps(result)
 
 
 def _tool_get_existing_entries(args: dict) -> str:
@@ -160,11 +212,12 @@ def _tool_get_existing_entries(args: dict) -> str:
         "entry_count": len(entries),
         "entries": [
             {
-                "description": e.get("Ltxa1", ""),
-                "hours":       float(e.get("Catsquantity", 0)),
-                "tasktype":    e.get("Tasktype", ""),
-                "project":     e.get("Rkostl") or e.get("Rproj", ""),
-                "status":      e.get("Status", ""),
+                "description":    e.get("Ltxa1", ""),
+                "hours":          float(e.get("Catsquantity", 0)),
+                "tasktype":       e.get("Tasktype", ""),
+                "project":        e.get("Rproj", "") or e.get("Rkostl", "") or e.get("Rkdauf", ""),
+                "sales_order":    e.get("Rkdauf", ""),   # non-empty for SO entries
+                "status":         e.get("Status", ""),
             }
             for e in entries
         ],
@@ -213,20 +266,47 @@ def _tool_post_time_entry(args: dict) -> str:
 
     d = date.fromisoformat(target_date)
 
-    # Resolve mapping by exact label first, then partial match
+    # Resolve mapping: wbs_mappings → auto_mappings → _favorites → default
     mapping = None
     if project_label.lower() == "default":
         mapping = config.get("default_mapping", {})
     else:
         pl = project_label.lower()
+
+        # 1. Exact label match in wbs_mappings (WBS / SO projects)
         for m in config.get("wbs_mappings", []):
             if m.get("label", "").lower() == pl:
                 mapping = m
                 break
+        # 2. Partial label match in wbs_mappings
         if mapping is None:
             for m in config.get("wbs_mappings", []):
                 if pl in m.get("label", "").lower():
                     mapping = m
+                    break
+        # 3. Exact label match in auto_mappings (CC-only keyword rules)
+        if mapping is None:
+            for am in config.get("auto_mappings", []):
+                am_label = (am.get("label") or am.get("keyword", "")).lower()
+                if am_label == pl:
+                    mapping = dict(am)
+                    mapping.setdefault("_ltxa1_override", am.get("ltxa1", ""))
+                    break
+        # 4. Partial label match in auto_mappings
+        if mapping is None:
+            for am in config.get("auto_mappings", []):
+                am_label = (am.get("label") or am.get("keyword", "")).lower()
+                if pl in am_label or am_label in pl:
+                    mapping = dict(am)
+                    mapping.setdefault("_ltxa1_override", am.get("ltxa1", ""))
+                    break
+        # 5. Exact label match in _favorites (saved CATXT entries)
+        if mapping is None:
+            for fav in config.get("_favorites", []):
+                fav_label = (fav.get("label") or fav.get("ltxa1", "")).lower()
+                if fav_label == pl:
+                    mapping = dict(fav)
+                    mapping.setdefault("_ltxa1_override", fav.get("ltxa1", ""))
                     break
 
     if mapping is None:
@@ -234,7 +314,8 @@ def _tool_post_time_entry(args: dict) -> str:
             "success": False,
             "error": (
                 f"No mapping found for '{project_label}'. "
-                "Call get_mappings to see available project labels."
+                "Call get_mappings to see available project labels "
+                "(check both 'mappings' and 'auto_mappings' in the response)."
             ),
         })
 
@@ -253,7 +334,16 @@ def _tool_post_time_entry(args: dict) -> str:
         "duration_hours":  hours,
     }
 
-    ok = core.post_activity(session, csrf, event, mapping, d)
+    # Pre-fetch existing entries so post_activity can detect "returned existing entry"
+    # false-positives even when Zzmoberrflag is not "V".
+    try:
+        existing = core.get_existing_entries(session, d)
+        existing_tcs = {e.get("Taskcounter", "") for e in existing if e.get("Taskcounter")}
+    except Exception:
+        existing_tcs = set()
+
+    ok = core.post_activity(session, csrf, event, mapping, d,
+                            existing_taskcounters=existing_tcs)
     if ok:
         # Mark the calendar event as processed so the tray app's scheduled
         # sync doesn't re-present it in the review dialog.
@@ -309,12 +399,26 @@ def _tool_add_keyword(args: dict) -> str:
 
     config  = core.load_config()
     mapping = _resolve_mapping(config, project_label)
+    # Also search auto_mappings and _favorites for CC-type entries
+    # (these have ICON/MEET/EDUC tasktypes and specific subtypes).
+    if mapping is None:
+        candidates = config.get("auto_mappings", []) + config.get("_favorites", [])
+        for m in candidates:
+            if m.get("label", "").lower() == pl:
+                mapping = dict(m)
+                break
+        if mapping is None:
+            for m in candidates:
+                if pl in m.get("label", "").lower():
+                    mapping = dict(m)
+                    break
+
     if mapping is None:
         return json.dumps({
             "success": False,
             "error": (
                 f"No mapping found for '{project_label}'. "
-                "Call get_mappings to see available project labels."
+                "Call get_mappings to see available project labels and cc_entries."
             ),
         })
 
@@ -563,8 +667,13 @@ _TOOLS = {
     "get_mappings": {
         "fn": _tool_get_mappings,
         "description": (
-            "Return all WBS project mappings configured in CATXT Sync, "
-            "including keywords and email patterns used for auto-matching meetings."
+            "Return all project and cost-centre mappings configured in CATXT Sync. "
+            "Response contains three keys: "
+            "'mappings' (WBS and Sales Order projects), "
+            "'auto_mappings' (cost-centre-only keyword rules — ICON/MEET/EDUC entries "
+            "such as 'AI Transformation', 'NxL Knowledge Share', team meetings), and "
+            "'excluded_keywords' (events that should never be posted). "
+            "Always check BOTH 'mappings' and 'auto_mappings' when looking for a project label."
         ),
         "inputSchema": {
             "type": "object", "properties": {}, "required": [],
@@ -574,7 +683,11 @@ _TOOLS = {
         "fn": _tool_suggest_mapping,
         "description": (
             "Given a meeting subject and optional organiser email, return the "
-            "best matching WBS project mapping, or the default cost centre fallback."
+            "best matching project mapping. Matches against WBS projects, Sales Order "
+            "projects, AND cost-centre-only keyword rules (auto_mappings — e.g. "
+            "'AI Transformation', 'NxL Knowledge Share', ICON/MEET/EDUC entries). "
+            "Returns excluded:true if the event matches an exclusion keyword. "
+            "Returns the default cost centre if nothing matches."
         ),
         "inputSchema": {
             "type": "object",
@@ -678,9 +791,14 @@ _TOOLS = {
         "fn": _tool_post_time_entry,
         "description": (
             "Post a single time entry to CATXT.  "
+            "Supports WBS/project entries, Sales-Order (SO) entries (e.g. Clorox, "
+            "Waters, Zero Motorcycles, PTC), and default cost-centre entries — "
+            "the correct receiving-object type is resolved automatically from the mapping.  "
             "IMPORTANT: always confirm with the user before calling this tool.  "
             "Use get_existing_entries first to avoid exceeding 8h/day.  "
-            "Use get_mappings to find the correct project_label value."
+            "Use get_mappings to find the correct project_label value — "
+            "check both 'mappings' (WBS/SO projects) and 'auto_mappings' "
+            "(CC-only keyword rules such as NXL Knowledge Share, team meetings)."
         ),
         "inputSchema": {
             "type": "object",

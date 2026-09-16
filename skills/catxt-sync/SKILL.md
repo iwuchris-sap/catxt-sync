@@ -95,7 +95,9 @@ When the user asks "which project does X map to" or "what keywords do I have for
 
 1. Call `suggest_mapping(subject)` to show the match result. If unmatched, call `get_calendar_event` to get the organizer email and retry.
 2. Or call `get_mappings()` to show all configured projects and their current keywords.
-   - `get_mappings` returns both `mappings` (WBS projects) and `excluded_keywords`.
+   - `get_mappings` returns three keys: `mappings` (WBS/SO projects), `auto_mappings`
+     (cost-centre-only entries like AI Transformation, NxL Knowledge Share, team meetings),
+     and `excluded_keywords`. Always check both `mappings` and `auto_mappings`.
 3. If no keyword match exists, offer to add one directly (see Workflow 5).
 
 ---
