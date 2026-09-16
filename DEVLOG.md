@@ -156,3 +156,19 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
     process-name check that missed `pythonw.exe`-launched instances.
 - **Fix: session-expired toast throttled to once per 4 hours** (was every hourly tick)
 - **Add: `create_shortcuts.bat`** — creates Desktop + Startup folder shortcuts without PowerShell.
+
+### Unreleased (next zip → bump to 1.1.1)
+- **Fix: `Tasklevel = "K1"` required for `Tasktype = ICON` CC entries (ZCATSXT-225)**
+  - Fixed in `catxt_core.py` and `catxt_sync.py`.
+- **Fix: `get_mappings` and `suggest_mapping` descriptions updated to surface `auto_mappings` CC entries**
+  - Joule now knows to look at both `mappings` and `auto_mappings` when resolving project labels.
+- **Feat: starter keywords auto-generated from customer name on first staffing sync**
+  - New `_starter_keywords()` in `catxt_core.py` — new users get working keyword matching immediately.
+- **Feat: Re-authenticate tray menu item**
+  - Refreshes SAP session without triggering a calendar sync or review dialog.
+- **Fix: `setup.bat` now installs `requirements_mcp.txt`** (starlette + uvicorn were missing)
+- **Fix: blank PERNR/KOSTL fallbacks** in `catxt_core.py` — prevents posting to wrong timesheet if auto-detection fails.
+- **Docs: customer names and internal identifiers removed from public docs**
+- **Docs: SETUP-GUIDE.md added to zip**
+
+> To release: update `VERSION` in `package.py` and `version:` in `skills/catxt-sync/SKILL.md` + `catxt-sync.md`, then run `python package.py`.
