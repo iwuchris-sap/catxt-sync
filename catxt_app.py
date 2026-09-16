@@ -147,14 +147,8 @@ class CatxtApp:
 
         log.info("CATXT Sync tray app started.")
 
-        # Write a PID lock file so the MCP server can reliably detect whether
-        # the tray app is running — process-name checks are unreliable when
-        # launched via pythonw.exe (the name in tasklist is just "pythonw.exe").
-        _PID_FILE = Path(__file__).parent / "catxt_app.pid"
-        try:
-            _PID_FILE.write_text(str(os.getpid()))
-        except Exception:
-            pass
+        # catxt_app.pid is written (and locked) by the single-instance guard
+        # in __main__ before this point — nothing to do here.
 
         # If launched by the Windows Task Scheduler (--scheduled flag), trigger
         # the smart scheduled sync automatically after the tray is ready.
@@ -179,6 +173,7 @@ class CatxtApp:
             MenuItem("Preview Today",       self._tray_preview),
             MenuItem("Add Manual Entry...", self._tray_add_manual_entry),
             Menu.SEPARATOR,
+            MenuItem("Re-authenticate",  self._tray_reauth),
             MenuItem("Sync Staffing",   self._tray_sync_staffing),
             MenuItem("Sync Metadata",   self._tray_sync_metadata),
             Menu.SEPARATOR,
@@ -225,6 +220,9 @@ class CatxtApp:
 
     def _tray_add_manual_entry(self, _icon=None, _item=None):
         self._gui_queue.put(self._open_manual_entry)
+
+    def _tray_reauth(self, _icon=None, _item=None):
+        self._gui_queue.put(self._start_reauth)
 
     def _tray_sync_staffing(self, _icon=None, _item=None):
         self._gui_queue.put(self._start_staffing_sync)
@@ -778,30 +776,44 @@ class CatxtApp:
 
     def _background_staffing_worker(self):
         """Hourly background staffing check — silent, TTL-gated, no notifications.
-        Skips entirely if there is no live session so no browser window is opened."""
+        First attempts a silent headless SSO re-auth when the saved session has
+        expired; only notifies the user if SSO itself has also expired."""
         try:
             self._set_icon_syncing(True)
             session = core.get_or_refresh_session(cookies_only=True)
             if session is None:
-                now = datetime.now()
-                cooldown = timedelta(hours=self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H)
-                if (
-                    self._last_session_expiry_notify is None
-                    or (now - self._last_session_expiry_notify) >= cooldown
-                ):
-                    self._last_session_expiry_notify = now
-                    log.info("Background staffing: SAP session expired — notifying user.")
-                    self._gui_queue.put(lambda: notify(
-                        "CATXT — Session Expired",
-                        "Your SAP session has expired.\n"
-                        "Right-click the tray icon → Sync Today to re-authenticate.",
-                    ))
-                else:
-                    log.debug(
-                        "Background staffing: session expired — notification suppressed "
-                        f"(cooldown {self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H}h)."
-                    )
-                return
+                # Saved cookies are stale — try a silent headless SSO re-auth.
+                # authenticate_via_browser(headless_only=True) uses the live Edge
+                # profile; if corporate SSO is still active the new cookies are
+                # fetched invisibly and the user never sees any popup.
+                log.info(
+                    "Background staffing: session expired — attempting silent SSO re-auth."
+                )
+                session = core.get_or_refresh_session(headless_only=True)
+                if session is None:
+                    # SSO has also expired — the user must re-authenticate manually.
+                    now = datetime.now()
+                    cooldown = timedelta(hours=self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H)
+                    if (
+                        self._last_session_expiry_notify is None
+                        or (now - self._last_session_expiry_notify) >= cooldown
+                    ):
+                        self._last_session_expiry_notify = now
+                        log.info(
+                            "Background staffing: silent re-auth failed — notifying user."
+                        )
+                        self._gui_queue.put(lambda: notify(
+                            "CATXT — Session Expired",
+                            "Your SAP session has expired.\n"
+                            "Right-click the tray icon → Re-authenticate.",
+                        ))
+                    else:
+                        log.debug(
+                            "Background staffing: session expired — notification suppressed "
+                            f"(cooldown {self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H}h)."
+                        )
+                    return
+                log.info("Background staffing: silent SSO re-auth succeeded.")
             # Session is live — reset the expiry cooldown so the next expiry notifies promptly
             self._last_session_expiry_notify = None
             config = core.load_config()
@@ -1255,6 +1267,43 @@ class CatxtApp:
             self._sync_lock.release()
             self._set_icon_syncing(False)
 
+    # ── Re-authenticate (standalone — no calendar sync, no review dialog) ───────
+
+    def _start_reauth(self):
+        if not self._sync_lock.acquire(blocking=False):
+            notify("CATXT Sync", "A sync is already in progress — try again shortly.")
+            return
+        threading.Thread(target=self._reauth_worker, daemon=True).start()
+
+    def _reauth_worker(self):
+        try:
+            self._set_icon_syncing(True)
+            log.info("Re-authenticate: refreshing SAP session...")
+            session = core.get_or_refresh_session()
+            if session is None:
+                self._gui_queue.put(lambda: notify(
+                    "CATXT — Authentication Failed",
+                    "Could not complete SAP login. Please try again.",
+                ))
+                log.warning("Re-authenticate: session refresh failed.")
+                return
+            core.detect_pernr(session)
+            # Reset expiry cooldown so the next expiry notifies promptly
+            self._last_session_expiry_notify = None
+            log.info("Re-authenticate: SAP session refreshed successfully.")
+            self._gui_queue.put(lambda: notify(
+                "CATXT — Authenticated",
+                "SAP session refreshed. You're good to go.",
+            ))
+        except Exception as exc:
+            log.exception("Re-authenticate error")
+            self._gui_queue.put(lambda: notify(
+                "CATXT Auth Error", str(exc)[:120]
+            ))
+        finally:
+            self._sync_lock.release()
+            self._set_icon_syncing(False)
+
     # ── Staffing sync (standalone) ────────────────────────────────────────────
 
     def _start_staffing_sync(self):
@@ -1546,4 +1595,30 @@ class _DateRangeDialog:
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    # ── Single-instance guard ─────────────────────────────────────────────────
+    # Open the PID file and hold an exclusive byte-range lock via msvcrt.
+    # The lock is released automatically by the OS on process exit or crash,
+    # so it can never go stale.  A second instance that can't acquire the lock
+    # exits silently instead of spawning a duplicate tray icon.
+    import msvcrt as _msvcrt
+    _LOCK_FILE = Path(__file__).parent / "catxt_app.pid"
+    # Open without truncating so the running instance's lock byte stays intact.
+    # Opening with "w" truncates to 0 bytes, which can make Windows fail the
+    # subsequent locking() call with "not enough memory".
+    if _LOCK_FILE.exists():
+        _lock_fh = open(_LOCK_FILE, "r+")
+    else:
+        _lock_fh = open(_LOCK_FILE, "w")
+    try:
+        _msvcrt.locking(_lock_fh.fileno(), _msvcrt.LK_NBLCK, 1)
+        _lock_fh.seek(0)
+        _lock_fh.write(str(os.getpid()))
+        _lock_fh.truncate()
+        _lock_fh.flush()
+    except OSError:
+        _lock_fh.close()
+        log.info("Another CATXT Sync instance is already running — exiting.")
+        sys.exit(0)
+    # _lock_fh stays open (and locked) for the entire process lifetime.
+    # ─────────────────────────────────────────────────────────────────────────
     CatxtApp().run()
