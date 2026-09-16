@@ -89,6 +89,7 @@ Joule will read your calendar, match meetings to your WBS projects, show you a s
 - It syncs entries hourly in the background
 - Use Joule for on-demand posting, status checks, and managing keyword rules
 - If you close the tray app, the MCP server stays running — Joule can restart it for you
+- SAP sessions expire every ~36–48 hours. When they do, you'll get a toast notification — right-click the tray icon → **Re-authenticate** to refresh. Takes about 30 seconds.
 
 ---
 
@@ -97,7 +98,7 @@ Joule will read your calendar, match meetings to your WBS projects, show you a s
 | Problem | Fix |
 |---------|-----|
 | Connector shows Disconnected | Make sure the tray app is running (SAP icon in system tray) |
-| "Session expired" toast notification | Right-click tray icon → Sync Today to re-authenticate |
+| "Session expired" toast notification | Right-click tray icon → **Re-authenticate** |
 | Meeting not matched to a project | Tell Joule: "Add '[keyword]' as a keyword for [project]" |
 | setup.bat says Python not found | Re-install Python and check "Add Python to PATH" |
 | Shortcuts not created | Run `create_shortcuts.bat` manually |
