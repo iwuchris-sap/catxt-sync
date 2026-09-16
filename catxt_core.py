@@ -301,9 +301,11 @@ def get_task_types(config: dict) -> dict:
 
 # ── PERNR / KOSTL ───────────────────────────────────────────────────────────────
 # Fallback values; both overwritten by detect_pernr() after auth once the
-# Userinfo endpoint is successfully called.
-PERNR: str = "01854017"
-KOSTL: str = "0800080808"   # user's home cost centre (Skostl for WBS entries)
+# Userinfo endpoint is successfully called.  Left blank deliberately — if
+# auto-detection fails the user gets a clear API error rather than silently
+# posting entries to the wrong person's timesheet.
+PERNR: str = ""
+KOSTL: str = ""   # user's home cost centre (Skostl for WBS entries)
 
 
 def detect_pernr(session: requests.Session) -> str:
