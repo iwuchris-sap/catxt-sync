@@ -2311,6 +2311,36 @@ def post_day(
 _STAFFING_TTL_HOURS = 1   # re-fetch at most every hour
 
 
+def _starter_keywords(customer_name: str) -> list[str]:
+    """Generate initial keyword suggestions from a staffing customer name.
+
+    Rules:
+    - Always includes the full name (lowercased) so the most specific match works.
+    - Also includes the first word if it is >= 5 characters and the name has
+      more than one word — gives a useful short-form (e.g. 'keurig' from
+      'Keurig Dr Pepper', 'lincoln' from 'Lincoln Electric').
+    - Single-word names (e.g. 'Clorox', 'Solventum') are returned as-is.
+    - Generic short first words (SAP, The, etc.) are skipped by the >= 5 rule.
+
+    Only applied to brand-new projects; never overwrites existing keywords.
+    """
+    name = customer_name.strip().lower()
+    if not name:
+        return []
+    keywords: list[str] = [name]
+    words = name.split()
+    if len(words) > 1 and len(words[0]) >= 5:
+        keywords.append(words[0])
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    result: list[str] = []
+    for kw in keywords:
+        if kw not in seen:
+            seen.add(kw)
+            result.append(kw)
+    return result
+
+
 def sync_staffing(
     session: requests.Session, config: dict, csrf_token: str = "",
     force: bool = False,
@@ -2410,16 +2440,20 @@ def sync_staffing(
         parts = [p for p in [customer, info] if p]
         label = " — ".join(parts) if parts else entry.get("Objnr", rproj)
 
+        starter_kws = _starter_keywords(customer)
         config.setdefault("wbs_mappings", []).append({
             "label":          label,
             "wbs":            wbs,
             "rproj":          rproj,
-            "keywords":       [],
+            "keywords":       starter_kws,
             "email_patterns": [],
             "tasktype":       "",
             "tasklevel":      tasklevel,
             "_endda":         endda,
             "_note": (
+                f"Auto-added by staffing sync — starter keywords from customer name: "
+                f"{starter_kws}. Add more keywords/email_patterns via Joule or Settings."
+                if starter_kws else
                 "Auto-added by staffing sync — add keywords/email_patterns "
                 "to enable auto-mapping."
             ),
@@ -2427,7 +2461,8 @@ def sync_staffing(
         existing_rprojs.add(rproj)
         added += 1
         config_changed = True
-        log.info(f"  + New project: {label} ({wbs or rproj})")
+        kw_str = f", starter keywords: {starter_kws}" if starter_kws else " (no customer name — add keywords manually)"
+        log.info(f"  + New project: {label} ({wbs or rproj}){kw_str}")
 
     if config_changed:
         if added:
