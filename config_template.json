@@ -1,7 +1,7 @@
 {
   "_setup_done": false,
   "_readme": "Add keyword and email rules below. The first matching rule wins. Keywords match anywhere in the meeting subject (case-insensitive). Email patterns match anywhere in the organiser's email address.",
-  "update_check_url": "",
+  "update_check_url": "https://raw.githubusercontent.com/iwuchris-sap/catxt-sync/main/version.json",
   "_update_readme": "Optional. Point to a raw JSON file at a stable URL (e.g. a GitHub raw URL or SharePoint link). Expected format: {\"version\": \"1.2.0\", \"download_url\": \"https://...\", \"changes\": \"What changed in this release\"}. Leave blank to disable the version check.",
   "default_mapping": {
     "label": "Default Cost Center",
