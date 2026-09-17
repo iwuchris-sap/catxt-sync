@@ -25,12 +25,16 @@ What's excluded (personal data / build artefacts):
     - SUBMISSION_NARRATIVE.md, DEVLOG.md (internal docs)
 """
 
+import sys
 import zipfile
 from pathlib import Path
 
-VERSION = "1.1.0"
-HERE    = Path(__file__).parent
-OUTPUT  = HERE / f"CATXT-Sync-{VERSION}.zip"
+HERE = Path(__file__).parent
+# Single source of truth: APP_VERSION in catxt_core.py
+sys.path.insert(0, str(HERE))
+from catxt_core import APP_VERSION as VERSION  # noqa: E402
+
+OUTPUT = HERE / f"CATXT-Sync-{VERSION}.zip"
 
 # Files/dirs to include (relative to HERE)
 INCLUDE_FILES = [

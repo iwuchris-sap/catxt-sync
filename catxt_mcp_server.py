@@ -4,7 +4,7 @@ catxt_mcp_server.py — MCP Connector for CATXT Sync
 Implements the MCP streamable-HTTP transport using starlette + uvicorn
 directly.  No FastMCP dependency — works with any mcp package version.
 
-Exposes eleven tools Joule can call:
+Exposes twelve tools Joule can call:
   get_mappings            — list all configured WBS project rules
   suggest_mapping         — match a meeting subject to a project
   get_existing_entries    — what is already posted in CATXT for a date
@@ -16,6 +16,7 @@ Exposes eleven tools Joule can call:
   clear_sync_history      — wipe processed-event cache so a day can be re-synced
   get_tray_status         — check whether the CATXT Sync tray app is running
   start_tray_app          — launch the CATXT Sync tray app if it is not running
+  get_app_info            — return local version and check for available updates
 
 Standalone mode
 ---------------
@@ -136,6 +137,45 @@ def _is_excluded(subject: str, config: dict) -> tuple[bool, str]:
     return False, ""
 
 
+def _tool_get_app_info(_args: dict) -> str:
+    config = core.load_config()
+    result = core.check_for_update(config)
+    return json.dumps(result)
+
+
+def _mapping_to_result(mapping: dict) -> dict:
+    """Build the suggest_mapping result dict from a single mapping entry."""
+    rproj_raw  = mapping.get("rproj", "")
+    rkdauf     = mapping.get("rkdauf", "")
+    rproj_real = rproj_raw if (rproj_raw and rproj_raw.strip("0")) else ""
+    if rkdauf:
+        receiving_type = "sales_order"
+    elif rproj_real:
+        receiving_type = "wbs_project"
+    else:
+        receiving_type = "cost_centre"
+    result: dict = {
+        "label":          mapping.get("label", ""),
+        "project_label":  mapping.get("label", ""),  # pass this to post_time_entry
+        "receiving_type": receiving_type,
+        "tasktype":       mapping.get("tasktype", ""),
+        "subtype":        mapping.get("zzsubtype", ""),   # zzsubtype for post_time_entry
+        "rkostl":         mapping.get("rkostl", ""),
+        "rproj":          rproj_real,   # empty string when CC-only, not 24 zeros
+        "wbs":            mapping.get("wbs", ""),
+        "ltxa1":          mapping.get("ltxa1", ""),  # canonical description override
+    }
+    if rkdauf:
+        result["rkdauf"] = rkdauf
+        result["rkdpos"] = mapping.get("rkdpos", "")
+    if receiving_type == "cost_centre":
+        result["note"] = (
+            "This is a cost-centre entry (no WBS).  "
+            "Use project_label exactly as shown and pass subtype to post_time_entry."
+        )
+    return result
+
+
 def _tool_suggest_mapping(args: dict) -> str:
     subject         = args.get("subject", "")
     organiser_email = args.get("organiser_email", "")
@@ -153,7 +193,37 @@ def _tool_suggest_mapping(args: dict) -> str:
             ),
         })
 
-    event  = {"subject": subject, "organiser_email": organiser_email}
+    event = {"subject": subject, "organiser_email": organiser_email}
+
+    # ── Ambiguity check: collect ALL matching wbs_mappings entries ──────────
+    # More than one match means the event is ambiguous — two WBS lines share
+    # the same keyword (e.g. duplicate staffing rows for the same customer).
+    # We must ask the user which one to use rather than silently picking first.
+    all_wbs = core._find_all_wbs_mappings(event, config)
+
+    if len(all_wbs) > 1:
+        candidates = [_mapping_to_result(m) for m in all_wbs]
+        # Strip the cost-centre note from candidates — it clutters the list
+        for c in candidates:
+            c.pop("note", None)
+        return json.dumps({
+            "excluded":   False,
+            "matched":    True,
+            "ambiguous":  True,
+            "message": (
+                "Multiple WBS projects match this event. "
+                "Ask the user which one to use before posting."
+            ),
+            "candidates": candidates,
+        })
+
+    if len(all_wbs) == 1:
+        result = _mapping_to_result(all_wbs[0])
+        result["excluded"] = False
+        result["matched"]  = True
+        return json.dumps(result)
+
+    # ── 0 wbs_mappings matched — fall through to auto_mappings / favorites ──
     mapping = core._find_specific_mapping(event, config)
     if mapping is None:
         default = config.get("default_mapping", {})
@@ -164,39 +234,9 @@ def _tool_suggest_mapping(args: dict) -> str:
             "label":    default.get("label", "Default Cost Centre"),
             "rkostl":   default.get("rkostl", ""),
         })
-    rproj_raw = mapping.get("rproj", "")
-    rkdauf    = mapping.get("rkdauf", "")
-    # All-zero rproj means CC-only (no WBS assigned)
-    rproj_real = rproj_raw if (rproj_raw and rproj_raw.strip("0")) else ""
-
-    if rkdauf:
-        receiving_type = "sales_order"
-    elif rproj_real:
-        receiving_type = "wbs_project"
-    else:
-        receiving_type = "cost_centre"
-
-    result: dict = {
-        "excluded":      False,
-        "matched":       True,
-        "label":         mapping.get("label", ""),
-        "project_label": mapping.get("label", ""),  # pass this to post_time_entry
-        "receiving_type": receiving_type,
-        "tasktype":      mapping.get("tasktype", ""),
-        "subtype":       mapping.get("zzsubtype", ""),   # zzsubtype for post_time_entry
-        "rkostl":        mapping.get("rkostl", ""),
-        "rproj":         rproj_real,      # empty string when CC-only, not 24 zeros
-        "wbs":           mapping.get("wbs", ""),
-        "ltxa1":         mapping.get("ltxa1", ""),  # canonical description override
-    }
-    if rkdauf:
-        result["rkdauf"] = rkdauf
-        result["rkdpos"] = mapping.get("rkdpos", "")
-    if receiving_type == "cost_centre":
-        result["note"] = (
-            "This is a cost-centre entry (no WBS).  "
-            "Use project_label exactly as shown and pass subtype to post_time_entry."
-        )
+    result = _mapping_to_result(mapping)
+    result["excluded"] = False
+    result["matched"]  = True
     return json.dumps(result)
 
 
@@ -911,6 +951,22 @@ _TOOLS = {
             "The app will appear in the Windows system tray within a few seconds. "
             "Note: calendar syncing and posting require the tray app to be running "
             "and authenticated. Call get_tray_status first to check."
+        ),
+        "inputSchema": {
+            "type": "object", "properties": {}, "required": [],
+        },
+    },
+    "get_app_info": {
+        "fn": _tool_get_app_info,
+        "description": (
+            "Return the installed version of CATXT Sync and check whether a newer "
+            "version is available at the configured update_check_url. "
+            "Returns: local_version, update_available (bool), latest_version, "
+            "download_url, and changes (brief changelog). "
+            "If update_check_url is not set in config.json the remote check is "
+            "skipped and update_available is always false. "
+            "Call this once at the start of a posting session — do not call it "
+            "on every interaction."
         ),
         "inputSchema": {
             "type": "object", "properties": {}, "required": [],

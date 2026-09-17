@@ -33,6 +33,75 @@ log = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Version
+# ══════════════════════════════════════════════════════════════════════════════
+
+APP_VERSION = "1.2.0"
+
+
+def check_for_update(config: dict) -> dict:
+    """Check whether a newer version of CATXT Sync is available.
+
+    Reads ``update_check_url`` from config and fetches a JSON file of the form::
+
+        {"version": "x.y.z", "download_url": "https://...", "changes": "..."}
+
+    Returns a dict with:
+        local_version    — installed version (APP_VERSION)
+        update_available — True if remote version > local version
+        latest_version   — version string from the remote file (or None on error)
+        download_url     — link to download the update (or "")
+        changes          — brief changelog from the remote file (or "")
+        note / error     — present only when the check was skipped or failed
+    """
+    url = config.get("update_check_url", "").strip()
+    base: dict = {
+        "local_version":    APP_VERSION,
+        "update_available": False,
+        "latest_version":   None,
+        "download_url":     "",
+        "changes":          "",
+    }
+    if not url:
+        base["note"] = (
+            "update_check_url is not configured in config.json — "
+            "version check disabled."
+        )
+        return base
+
+    try:
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        base["error"] = f"Could not reach update server: {exc}"
+        return base
+
+    remote_ver = str(data.get("version", "")).strip()
+    if not remote_ver:
+        base["error"] = "Remote version file did not contain a 'version' field."
+        return base
+
+    try:
+        local_parts  = tuple(int(x) for x in APP_VERSION.split("."))
+        remote_parts = tuple(int(x) for x in remote_ver.split("."))
+        update_available = remote_parts > local_parts
+    except ValueError:
+        base["error"] = (
+            f"Could not compare versions: '{APP_VERSION}' vs '{remote_ver}'."
+        )
+        return base
+
+    return {
+        "local_version":    APP_VERSION,
+        "update_available": update_available,
+        "latest_version":   remote_ver,
+        "download_url":     data.get("download_url", ""),
+        "changes":          data.get("changes", ""),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Windows-API browser window suppressor
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1374,6 +1443,32 @@ def _find_specific_mapping(event: dict, config: dict) -> dict | None:
                 "wbs":       "",
             }
     return None
+
+
+def _find_all_wbs_mappings(event: dict, config: dict) -> list[dict]:
+    """Return ALL wbs_mappings entries that match this event.
+
+    Unlike _find_specific_mapping this does not short-circuit on the first hit,
+    so callers can detect when more than one mapping matches (ambiguity).
+    Does NOT check auto_mappings or _favorites — those are always single-pick.
+    """
+    subject_lower   = event["subject"].lower()
+    organiser_lower = event["organiser_email"].lower()
+    results: list[dict] = []
+    for mapping in config.get("wbs_mappings", []):
+        matched = False
+        for kw in mapping.get("keywords", []):
+            if kw.lower() in subject_lower:
+                matched = True
+                break
+        if not matched:
+            for ep in mapping.get("email_patterns", []):
+                if ep.lower() in organiser_lower:
+                    matched = True
+                    break
+        if matched:
+            results.append(mapping)
+    return results
 
 
 # ══════════════════════════════════════════════════════════════════════════════
