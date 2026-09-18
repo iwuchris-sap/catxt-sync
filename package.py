@@ -41,6 +41,7 @@ INCLUDE_FILES = [
     "catxt_app.py",
     "catxt_core.py",
     "catxt_mcp_server.py",
+    "catxt_mcp_launcher.py",
     "catxt_review.py",
     "catxt_settings.py",
     "catxt_wizard.py",

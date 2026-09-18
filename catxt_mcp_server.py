@@ -600,38 +600,46 @@ def _tool_clear_sync_history(args: dict) -> str:
 
 
 def _tray_app_running() -> bool:
-    """Return True if catxt_app.py (or catxt.exe) process is currently running.
+    """Return True if catxt_app.py (or catxt.exe) is currently running.
 
-    Detection order (fastest / most reliable first):
+    Primary check: attempt to acquire the msvcrt byte-range lock on
+    catxt_app.pid.  catxt_app.py holds this lock for its entire lifetime —
+    the OS releases it automatically on exit *or* crash, so it can never go
+    stale.  If we can acquire the lock the tray is not running; if we cannot
+    (OSError) the tray holds it.
 
-    1. PID lock file (catxt_app.pid) — written by catxt_app.py on startup and
-       deleted on clean exit.  We verify the PID is still alive so a stale file
-       from a crash doesn't give a false positive.
-    2. tasklist check for catxt.exe — covers the compiled/PyInstaller build.
+    This replaces the old tasklist/PID approach, which had two bugs:
+      - tasklist always returns non-empty output (even "INFO: No tasks…"),
+        so ``if out:`` was always True — causing false positives on stale files.
+      - The catxt.exe fallback only covered compiled builds, not the Python
+        source build, causing false negatives on normal installs.
 
-    We deliberately avoid checking for 'pythonw.exe' by name alone because that
-    process name is shared by every pythonw-hosted script on the machine.
+    Fallback: tasklist check for catxt.exe (PyInstaller compiled build only).
     """
-    import subprocess
+    import msvcrt
 
-    # ── 1. PID lock file ──────────────────────────────────────────────────────
+    # ── 1. msvcrt lock check (Python source build) ────────────────────────────
     pid_file = _HERE / "catxt_app.pid"
     if pid_file.exists():
         try:
-            pid = int(pid_file.read_text().strip())
-            # tasklist /FI returns a header + one data row if the PID is alive
-            out = subprocess.check_output(
-                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                stderr=subprocess.DEVNULL,
-            ).decode("utf-8", errors="ignore").strip()
-            if out:        # any output means the PID is alive
-                return True
-            # PID is gone — clean up the stale lock file
-            pid_file.unlink(missing_ok=True)
+            with open(pid_file, "r+b") as fh:
+                try:
+                    # Non-blocking exclusive lock on byte 0.
+                    # OSError → lock is held by the tray → it is running.
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    # Acquired the lock → tray is NOT running; release immediately.
+                    try:
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    except OSError:
+                        pass
+                    return False
+                except OSError:
+                    return True   # lock held → tray IS running
         except Exception:
-            pass   # fall through to exe check
+            pass   # can't open file → fall through to exe check
 
-    # ── 2. Compiled exe (catxt.exe) ───────────────────────────────────────────
+    # ── 2. Compiled exe fallback (catxt.exe / PyInstaller build) ─────────────
+    import subprocess
     try:
         out = subprocess.check_output(
             ["tasklist", "/FO", "CSV", "/NH"],
@@ -1078,4 +1086,14 @@ def run(port: int = DEFAULT_PORT) -> None:
 
 
 if __name__ == "__main__":
+    # Configure file-based logging when running standalone (scheduled task /
+    # direct invocation).  pythonw.exe suppresses all stdout/stderr, so without
+    # this any crash or error fails completely silently.
+    _log_file = _HERE / "catxt_mcp.log"
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)-5s] %(message)s",
+        handlers=[logging.FileHandler(_log_file, encoding="utf-8")],
+    )
+    log.info("catxt_mcp_server starting in standalone mode.")
     run()

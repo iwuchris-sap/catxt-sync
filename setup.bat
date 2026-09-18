@@ -59,7 +59,7 @@ rem ── Register MCP server as a logon startup task ────────�
 echo.
 echo [4/5] Registering CATXT MCP Server as a startup task...
 echo       (Lets Joule reach the server even when the tray app GUI is closed)
-schtasks /create /tn "CATXT MCP Server" /tr "pythonw.exe \"%SCRIPT_DIR%\catxt_mcp_server.py\"" /sc ONLOGON /rl LIMITED /f >nul 2>&1
+schtasks /create /tn "CATXT MCP Server" /tr "pythonw.exe \"%SCRIPT_DIR%\catxt_mcp_launcher.py\"" /sc ONLOGON /rl LIMITED /f >nul 2>&1
 if errorlevel 1 (
     echo       WARNING: Could not create scheduled task.
     echo       The MCP server will still start automatically when the tray app launches.

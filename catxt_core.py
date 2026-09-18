@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # Version
 # ══════════════════════════════════════════════════════════════════════════════
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 
 def check_for_update(config: dict) -> dict:
@@ -2194,15 +2194,38 @@ def post_activity(
                         if activity_results and existing_taskcounters:
                             resp_tc = activity_results[0].get("Taskcounter", "")
                             if resp_tc and resp_tc in existing_taskcounters:
-                                log.error(
-                                    f"  ✗  {event['subject'][:50]} — response returned "
-                                    f"existing entry (Taskcounter={resp_tc}); "
-                                    f"new entry was NOT created."
+                                # Only flag as a true duplicate if the returned entry's
+                                # content matches what we just sent.  The CATXT backend
+                                # sometimes echoes a pre-existing Taskcounter in the
+                                # response for an unrelated new post — this happens when
+                                # multiple entries are posted in the same SAP session and
+                                # the backend reuses the active ActivityHeader.
+                                resp_ltxa1 = (activity_results[0].get("Ltxa1") or "")[:40]
+                                resp_date  = activity_results[0].get("Workdate", "")
+                                resp_qty   = activity_results[0].get("Catsquantity", "")
+                                is_true_dup = (
+                                    resp_ltxa1 == activity_line.get("Ltxa1", "")
+                                    and resp_date == workdate
+                                    and resp_qty  == activity_line.get("Catsquantity", "")
                                 )
-                                if msgtxt:
-                                    log.error(f"      Backend said: [{msgno}] {msgtxt}")
-                                log.error(f"      ActivityLine: {json.dumps(activity_line)}")
-                                return False
+                                if is_true_dup:
+                                    log.error(
+                                        f"  ✗  {event['subject'][:50]} — response returned "
+                                        f"existing entry (Taskcounter={resp_tc}); "
+                                        f"new entry was NOT created."
+                                    )
+                                    if msgtxt:
+                                        log.error(f"      Backend said: [{msgno}] {msgtxt}")
+                                    log.error(f"      ActivityLine: {json.dumps(activity_line)}")
+                                    return False
+                                else:
+                                    log.debug(
+                                        f"      Backend echoed pre-existing "
+                                        f"Taskcounter={resp_tc} but content differs "
+                                        f"(resp='{resp_ltxa1}'/{resp_date}, "
+                                        f"sent='{activity_line.get('Ltxa1','')[:40]}'/{workdate})"
+                                        f" — treating as successful post."
+                                    )
 
                 except Exception:
                     pass
