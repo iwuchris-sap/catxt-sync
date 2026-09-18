@@ -69,14 +69,27 @@ log = logging.getLogger(__name__)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _get_session():
-    """Return a live requests.Session or raise a descriptive RuntimeError."""
+    """Return a live requests.Session or raise a descriptive RuntimeError.
+
+    Tries saved cookies first (fast path).  If expired, attempts a silent
+    headless SSO re-auth using the live Edge profile — this succeeds invisibly
+    when corporate SSO is still active, so callers rarely see an error.
+    Only raises if both the cookie check and headless re-auth fail.
+    """
+    # 1. Fast path: saved cookies
     session = core.get_or_refresh_session(cookies_only=True)
-    if session is None:
-        raise RuntimeError(
-            "No active CATXT session — open the CATXT Sync tray app and "
-            "ensure it is authenticated (SAP icon in the system tray)."
-        )
-    return session
+    if session is not None:
+        return session
+    # 2. Cookies expired — try silent headless SSO re-auth
+    log.info("_get_session: cookies expired — attempting silent SSO re-auth.")
+    session = core.get_or_refresh_session(headless_only=True)
+    if session is not None:
+        log.info("_get_session: silent SSO re-auth succeeded.")
+        return session
+    raise RuntimeError(
+        "No active CATXT session — open the CATXT Sync tray app and "
+        "ensure it is authenticated (SAP icon in the system tray)."
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

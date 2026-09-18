@@ -780,42 +780,9 @@ class CatxtApp:
         expired; only notifies the user if SSO itself has also expired."""
         try:
             self._set_icon_syncing(True)
-            session = core.get_or_refresh_session(cookies_only=True)
+            session = self._get_session_or_notify()
             if session is None:
-                # Saved cookies are stale — try a silent headless SSO re-auth.
-                # authenticate_via_browser(headless_only=True) uses the live Edge
-                # profile; if corporate SSO is still active the new cookies are
-                # fetched invisibly and the user never sees any popup.
-                log.info(
-                    "Background staffing: session expired — attempting silent SSO re-auth."
-                )
-                session = core.get_or_refresh_session(headless_only=True)
-                if session is None:
-                    # SSO has also expired — the user must re-authenticate manually.
-                    now = datetime.now()
-                    cooldown = timedelta(hours=self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H)
-                    if (
-                        self._last_session_expiry_notify is None
-                        or (now - self._last_session_expiry_notify) >= cooldown
-                    ):
-                        self._last_session_expiry_notify = now
-                        log.info(
-                            "Background staffing: silent re-auth failed — notifying user."
-                        )
-                        self._gui_queue.put(lambda: notify(
-                            "CATXT — Session Expired",
-                            "Your SAP session has expired.\n"
-                            "Right-click the tray icon → Re-authenticate.",
-                        ))
-                    else:
-                        log.debug(
-                            "Background staffing: session expired — notification suppressed "
-                            f"(cooldown {self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H}h)."
-                        )
-                    return
-                log.info("Background staffing: silent SSO re-auth succeeded.")
-            # Session is live — reset the expiry cooldown so the next expiry notifies promptly
-            self._last_session_expiry_notify = None
+                return
             config = core.load_config()
             csrf   = core.get_csrf_token(session)
             # force=False so the 1-hour TTL prevents redundant API calls
@@ -1143,12 +1110,9 @@ class CatxtApp:
             log.info(f"CATXT Sync — {target_date.strftime('%A, %B %d %Y')}")
 
             # ── Auth ──────────────────────────────────────────────────────────
-            session = core.get_or_refresh_session()
+            session = self._get_session_or_notify()
             if session is None:
-                self._gui_queue.put(lambda: notify(
-                    "CATXT Sync — Auth Failed",
-                    "Could not authenticate. Check the log for details.",
-                ))
+                log.error("Sync: session unavailable — skipping.")
                 return
 
             # ── PERNR ─────────────────────────────────────────────────────────
