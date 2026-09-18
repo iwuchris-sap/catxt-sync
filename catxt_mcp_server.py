@@ -64,6 +64,18 @@ except ImportError:
 DEFAULT_PORT = 7432
 log = logging.getLogger(__name__)
 
+# CATXT backend acquires an exclusive record lock per PERNR during each batch
+# write.  Concurrent POSTs to the same PERNR are rejected with LR(093).
+# This lock serialises all post_time_entry calls server-side so Joule can call
+# the tool in parallel without hitting backend lock contention.
+_post_lock = asyncio.Lock()
+# Seconds to wait after each successful post before releasing the lock —
+# gives the CATXT backend time to commit and release its own record lock.
+_POST_SLEEP_S = 1.5
+
+# Tools that must hold _post_lock (CATXT write operations)
+_SERIALISED_TOOLS = {"post_time_entry"}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Auth helper
@@ -1060,7 +1072,16 @@ async def _mcp_endpoint(request: Request) -> Response:
             # Run the sync tool function in a thread so Playwright's sync API
             # (which needs its own event loop) doesn't conflict with uvicorn's
             # running asyncio loop.  asyncio.to_thread() requires Python 3.9+.
-            result_text = await asyncio.to_thread(_TOOLS[tool_name]["fn"], arguments)
+            #
+            # Write tools (post_time_entry) are additionally serialised via
+            # _post_lock to prevent concurrent POSTs hitting the CATXT backend
+            # record lock (LR(093): Personnel number locked by user ...).
+            if tool_name in _SERIALISED_TOOLS:
+                async with _post_lock:
+                    result_text = await asyncio.to_thread(_TOOLS[tool_name]["fn"], arguments)
+                    await asyncio.sleep(_POST_SLEEP_S)
+            else:
+                result_text = await asyncio.to_thread(_TOOLS[tool_name]["fn"], arguments)
             return JSONResponse({
                 "jsonrpc": "2.0", "id": req_id,
                 "result": {

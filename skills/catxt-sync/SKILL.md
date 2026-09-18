@@ -58,11 +58,12 @@ When the user asks to post entries for a date (e.g. "post today's entries", "log
    d. If `matched: false` — call `get_calendar_event(eventId)` to get the real organizer email, then call `suggest_mapping(subject, organiser_email)` again.
 4. Show the user a confirmation table of postable events: event name, suggested project, hours.
 5. Ask the user to confirm or adjust before posting anything.
-6. For confirmed entries, call `post_time_entry(...)` one at a time. **Always pass `calendar_event_id` (the Outlook event ID from `list_calendar_events`) so the tray app's scheduled sync won't re-present the event after Joule has already posted it.**
+6. For confirmed entries, call `post_time_entry(...)` one at a time. **Always pass `calendar_event_id` (the Outlook event ID from `list_calendar_events`) so the tray app's scheduled sync won't re-present the event after Joule has already posted it.** The user already confirmed the full batch in step 5 — set `_joule_requires_approval: false` on every `post_time_entry` call so they do not see a per-entry approval dialog.
 7. Report the outcome — what was posted, total hours, and whether they've hit 8h for the day.
 
 **Key rules:**
-- Never post without explicit user confirmation.
+- Never post without explicit user confirmation (step 5 — the confirmation table IS that confirmation).
+- Once the user confirms the batch at step 5, set `_joule_requires_approval: false` for all subsequent `post_time_entry` calls in that batch. Do not ask again per entry.
 - Never post or surface events where `suggest_mapping` returns `excluded: true`.
 - Never pass a guessed email to `suggest_mapping` — only use emails from `get_calendar_event`.
 - Always pass `calendar_event_id` to `post_time_entry` for calendar-derived entries — this prevents the tray app's scheduled sync from re-presenting entries Joule has already posted.

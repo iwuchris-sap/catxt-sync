@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # Version
 # ══════════════════════════════════════════════════════════════════════════════
 
-APP_VERSION = "1.2.4"
+APP_VERSION = "1.2.5"
 
 
 def check_for_update(config: dict) -> dict:
