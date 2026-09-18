@@ -172,3 +172,67 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
 - **Docs: SETUP-GUIDE.md added to zip**
 
 > To release: update `VERSION` in `package.py` and `version:` in `skills/catxt-sync/SKILL.md` + `catxt-sync.md`, then run `python package.py`.
+
+---
+
+### 2026-09-18 — v1.2.1
+- **Fix: duplicate detection false positives in `post_time_entry`**
+  - CATXT backend echoes the first-created `ActivityHeader` (same `Taskcounter`) for all
+    subsequent POSTs in the same session. The old duplicate check saw a non-zero `Taskcounter`
+    and incorrectly concluded the entry already existed.
+  - Fix: the returned entry's description, date, and hours are now verified against what was
+    sent before flagging as duplicate. A mismatched echo is logged as debug and treated as success.
+- **Add: MCP server file logging (`catxt_mcp.log`)**
+  - The scheduled-task process (`pythonw.exe`) was failing silently with no output.
+  - `catxt_mcp_server.py` now writes a rotating log file to the same folder when running standalone.
+  - `catxt_mcp.log` added to `.gitignore`.
+- **Add: Watchdog auto-restart launcher (`catxt_mcp_launcher.py`)**
+  - New launcher wraps `catxt_mcp_server.py` and restarts it on exit with exponential back-off
+    (10 s → 20 s → … → 60 s cap). The scheduled task now runs the launcher instead of the server.
+  - `setup.bat` updated to register the launcher.
+- **Fix: tray status detection (`get_tray_status` / `start_tray_app`)**
+  - Replaced unreliable `tasklist` string match (always returned True) with a direct `msvcrt`
+    byte-range lock probe on `catxt_app.pid`. Lock held → app running; lock acquirable → not running.
+    No locale-dependent string parsing, no stale PID file false positives.
+
+### 2026-09-18 — v1.2.2
+- **Add: silent SSO re-auth on cookie expiry**
+  - All sync paths now follow a three-step cascade:
+    1. Valid cookies → proceed normally.
+    2. Cookies expired but corporate SSO still active → silent headless re-auth using the live
+       Edge profile (completely invisible, no notification required).
+    3. SAP SSO itself expired → notification asking for manual re-authentication.
+  - Implemented via `_get_session_or_notify` pattern across `catxt_app.py` and
+    `catxt_mcp_server.py`. Previously every cookie expiry triggered a manual re-auth notification.
+
+### 2026-09-18 — v1.2.3
+- **Fix: headless auth when Edge profile is locked (temp profile copy)**
+  - v1.2.2 headless re-auth always failed while Edge was open because Playwright tried to open
+    the live Edge profile directory, which is exclusively locked by the running browser.
+  - Fix: `authenticate_via_browser()` in `catxt_core.py` now attempts the live profile first,
+    and if that fails due to a lock, copies only `Cookies` + `Local State` to a temp directory
+    and launches Edge headlessly from the copy.
+  - The temp dir is a few MB, lives for seconds, and is always cleaned up on success or failure.
+  - Result: silent re-auth now succeeds in normal use (Edge open, corporate SSO active).
+    The "Session Expired" notification only appears when SAP SSO itself has genuinely expired.
+
+### 2026-09-18 — v1.2.4
+- **Fix: Playwright Sync API conflict in MCP server (`catxt_mcp_server.py`)**
+  - **Root cause:** `_mcp_endpoint` is an `async` Starlette handler running inside uvicorn's
+    asyncio event loop. Several tool functions call `core.get_or_refresh_session(headless_only=True)`
+    which invokes Playwright's synchronous API (`sync_playwright()`). Playwright's sync API starts
+    its own event loop internally, but Python raises `"Playwright Sync API inside the asyncio loop"`
+    when a running loop already exists — causing all tool calls that touch Playwright to crash.
+  - **Fix:** Added `import asyncio` and changed the tool dispatch on line ~1059 from:
+    ```python
+    result_text = _TOOLS[tool_name]["fn"](arguments)
+    ```
+    to:
+    ```python
+    result_text = await asyncio.to_thread(_TOOLS[tool_name]["fn"], arguments)
+    ```
+  - `asyncio.to_thread()` runs the synchronous tool function in a thread-pool thread where no
+    asyncio event loop is running. Playwright's sync API can start its own loop there without
+    any conflict. The result is awaited back into the event loop as normal.
+  - **No changes to `catxt_core.py`** — the fix is entirely in the MCP server dispatch layer.
+  - Requires Python 3.9+ (already a project requirement).

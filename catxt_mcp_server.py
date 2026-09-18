@@ -35,6 +35,7 @@ Run standalone:  python catxt_mcp_server.py
 Via tray app:    started automatically on port 7432
 """
 
+import asyncio
 import json
 import logging
 import sys
@@ -1056,7 +1057,10 @@ async def _mcp_endpoint(request: Request) -> Response:
                 "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
             })
         try:
-            result_text = _TOOLS[tool_name]["fn"](arguments)
+            # Run the sync tool function in a thread so Playwright's sync API
+            # (which needs its own event loop) doesn't conflict with uvicorn's
+            # running asyncio loop.  asyncio.to_thread() requires Python 3.9+.
+            result_text = await asyncio.to_thread(_TOOLS[tool_name]["fn"], arguments)
             return JSONResponse({
                 "jsonrpc": "2.0", "id": req_id,
                 "result": {

@@ -1,1 +1,1 @@
-{"version": "1.2.3", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed duplicate detection false positives, MCP server crash logging, watchdog auto-restart, tray status detection"}  
+{"version": "1.2.4", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed Playwright sync API conflict in MCP server — all tool calls now run on a thread pool so Playwright can start its own event loop"}
