@@ -1,1 +1,1 @@
-{"version": "1.2.5", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed concurrent post_time_entry calls causing LR(093) backend lock errors — writes are now serialised server-side"}
+{"version": "1.2.6", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed add_keyword for auto_mapping entries (NameError + copy bug); added AI Transformation and Training for goals keywords"}

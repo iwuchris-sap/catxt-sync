@@ -457,6 +457,7 @@ def _tool_add_keyword(args: dict) -> str:
     project_label = args.get("project_label", "")
     keyword       = (args.get("keyword") or "").strip()
     ktype         = (args.get("type") or "keyword").lower()
+    pl            = project_label.strip().lower()   # normalised label for matching
 
     if not keyword:
         return json.dumps({"success": False, "error": "keyword cannot be empty."})
@@ -465,21 +466,56 @@ def _tool_add_keyword(args: dict) -> str:
 
     config  = core.load_config()
     mapping = _resolve_mapping(config, project_label)
-    # Also search auto_mappings and _favorites for CC-type entries
-    # (these have ICON/MEET/EDUC tasktypes and specific subtypes).
+
+    # ── auto_mappings fallback ────────────────────────────────────────────────
+    # auto_mappings use a single 'keyword' field per entry (not a keywords list).
+    # "Adding a keyword" here means creating a new entry that inherits the
+    # tasktype/subtype/rkostl/ltxa1 from the matched template entry.
     if mapping is None:
-        candidates = config.get("auto_mappings", []) + config.get("_favorites", [])
-        for m in candidates:
+        auto = config.get("auto_mappings", [])
+        template = None
+        for m in auto:
             if m.get("label", "").lower() == pl:
-                mapping = dict(m)
+                template = m
                 break
-        if mapping is None:
-            for m in candidates:
+        if template is None:
+            for m in auto:
                 if pl in m.get("label", "").lower():
-                    mapping = dict(m)
+                    template = m
                     break
 
-    if mapping is None:
+        if template is not None:
+            # Duplicate check — keyword already in any entry under this label
+            if any(
+                m.get("keyword", "").lower() == keyword.lower()
+                for m in auto
+                if m.get("label", "").lower() == template.get("label", "").lower()
+            ):
+                return json.dumps({
+                    "success":        False,
+                    "already_exists": True,
+                    "message": f"'{keyword}' is already mapped under '{template['label']}'.",
+                })
+            new_entry = {
+                "label":     template.get("label", ""),
+                "keyword":   keyword,
+                "tasktype":  template.get("tasktype", ""),
+                "zzsubtype": template.get("zzsubtype", ""),
+                "rkostl":    template.get("rkostl", ""),
+                "rproj":     template.get("rproj", "000000000000000000000000"),
+                "ltxa1":     template.get("ltxa1", template.get("label", "")),
+            }
+            auto.append(new_entry)
+            core.save_config(config)
+            log.info(f"add_keyword: new auto_mapping entry '{keyword}' under '{template['label']}'")
+            return json.dumps({
+                "success": True,
+                "project": template["label"],
+                "added":   keyword,
+                "type":    "auto_mapping_entry",
+                "note":    "auto_mappings use one entry per keyword — a new entry was created.",
+            })
+
         return json.dumps({
             "success": False,
             "error": (
@@ -488,12 +524,13 @@ def _tool_add_keyword(args: dict) -> str:
             ),
         })
 
+    # ── wbs_mappings path — append to keywords / email_patterns list ─────────
     field    = "keywords" if ktype == "keyword" else "email_patterns"
     existing = mapping.setdefault(field, [])
 
     if any(k.lower() == keyword.lower() for k in existing):
         return json.dumps({
-            "success":       False,
+            "success":        False,
             "already_exists": True,
             "message": f"'{keyword}' is already in {field} for '{mapping['label']}'.",
         })
