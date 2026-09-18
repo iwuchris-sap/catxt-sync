@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # Version
 # ══════════════════════════════════════════════════════════════════════════════
 
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.2.3"
 
 
 def check_for_update(config: dict) -> dict:
@@ -1501,7 +1501,8 @@ def authenticate_via_browser(headless_only: bool = False) -> list | None:
 
     with sync_playwright() as p:
         edge_profile = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\User Data")
-        context = None
+        context  = None
+        _tmp_dir = None   # temp profile copy used when live profile is locked
 
         _hidden_hwnds: list = []
         _pre_pids     = _msedge_pids()
@@ -1522,11 +1523,54 @@ def authenticate_via_browser(headless_only: bool = False) -> list | None:
             log.info("Auth browser: msedge (live profile, headless)")
         except Exception as profile_err:
             if headless_only:
-                log.debug(
-                    f"Headless-only auth: Edge profile locked ({profile_err}) — giving up."
-                )
-                return None
-            log.info(f"Could not use Edge live profile ({profile_err}) — trying fresh browser.")
+                # ── Strategy 1b: headless with a temp copy of the cookie store ──
+                # The live Edge profile is locked while Edge is running, so
+                # Playwright can't open it directly.  We copy only the minimal
+                # files needed for SSO (Local State + Cookies) to a fresh temp
+                # directory.  The copy is not locked, so Playwright can launch
+                # headlessly from it.  If the SAP SSO session is still valid in
+                # those cookies, authentication completes silently with no visible
+                # browser window.
+                import shutil, tempfile
+                _edge_src = Path(os.path.expandvars(
+                    r"%LOCALAPPDATA%\Microsoft\Edge\User Data"
+                ))
+                _tmp_dir = Path(tempfile.mkdtemp(prefix="catxt_edge_"))
+                try:
+                    (_tmp_dir / "Default").mkdir(parents=True)
+                    _ls = _edge_src / "Local State"
+                    if _ls.exists():
+                        shutil.copy2(_ls, _tmp_dir / "Local State")
+                    for _csrc, _crel in [
+                        (_edge_src / "Default" / "Cookies",
+                         "Default/Cookies"),
+                        (_edge_src / "Default" / "Network" / "Cookies",
+                         "Default/Network/Cookies"),
+                    ]:
+                        if _csrc.exists():
+                            _cdst = _tmp_dir / _crel
+                            _cdst.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(_csrc, _cdst)
+                    context = p.chromium.launch_persistent_context(
+                        user_data_dir=str(_tmp_dir),
+                        channel="msedge",
+                        headless=True,
+                        timeout=15_000,
+                        args=["--no-first-run", "--no-default-browser-check",
+                              "--disable-sync", "--no-restore-last-session"],
+                    )
+                    _was_headless = True
+                    log.info("Auth browser: msedge (temp profile copy, headless)")
+                except Exception as tmp_err:
+                    shutil.rmtree(_tmp_dir, ignore_errors=True)
+                    _tmp_dir = None
+                    log.debug(
+                        f"Headless-only auth: live profile locked and temp-profile "
+                        f"also failed ({tmp_err}) — giving up."
+                    )
+                    return None
+            else:
+                log.info(f"Could not use Edge live profile ({profile_err}) — trying fresh browser.")
 
         # ── Strategy 2 (fallback): visible fresh browser ───────────────────────
         if context is None:
@@ -1583,6 +1627,9 @@ def authenticate_via_browser(headless_only: bool = False) -> list | None:
                             context.close()
                         except Exception:
                             pass
+                        if _tmp_dir is not None:
+                            import shutil as _sh
+                            _sh.rmtree(_tmp_dir, ignore_errors=True)
                         return None
                     # SSO didn't complete silently — close headless context and
                     # relaunch a visible browser so the user can log in manually.
@@ -1652,6 +1699,9 @@ def authenticate_via_browser(headless_only: bool = False) -> list | None:
             context.close()
         except Exception:
             pass
+        if _tmp_dir is not None:
+            import shutil as _sh
+            _sh.rmtree(_tmp_dir, ignore_errors=True)
         time.sleep(0.5)   # allow Edge time to process post-close window teardown
         _close_new_browser_windows(_pre)
         time.sleep(0.3)
