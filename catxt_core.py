@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # Version
 # ══════════════════════════════════════════════════════════════════════════════
 
-APP_VERSION = "1.2.6"
+APP_VERSION = "1.2.7"
 
 
 def check_for_update(config: dict) -> dict:
@@ -2070,13 +2070,20 @@ def post_activity(
 
     taskcomponent = mapping.get("taskcomponent", "")
     if not taskcomponent:
-        # All entries record actual work hours — use WORKHRS universally.
-        # Historical note: the original HAR was captured from a MEET/TEAMMEET
-        # CC entry that happened to work with WORKSTAT, but the CATXT UI
-        # always selects "Work Hrs" (WORKHRS) regardless of task type.
-        # ICON ("Internal projectwork") in particular requires WORKHRS and
-        # silently rejects WORKSTAT.
-        taskcomponent = "WORKHRS"
+        if rproj or is_sd:
+            # WBS and SD project entries use WORKHRS — confirmed correct from
+            # production HAR captures and live posting results.
+            taskcomponent = "WORKHRS"
+        elif tasktype == "ICON":
+            # ICON ("Internal projectwork") specifically requires WORKHRS and
+            # silently rejects WORKSTAT (ZCATSXT-225).
+            taskcomponent = "WORKHRS"
+        else:
+            # CC (cost centre) entries use WORKSTAT — confirmed from Fiori UI
+            # HAR capture (Sep 18 2026).  Using WORKHRS for CC causes the backend
+            # to silently drop the entry (returns [009] with empty Activity).
+            # The original code incorrectly overrode this to WORKHRS universally.
+            taskcomponent = "WORKSTAT"
 
     # WBS and SD entries need the user's home cost centre as the sender object.
     skostl = KOSTL if (rproj or is_sd) else ""
@@ -2269,13 +2276,22 @@ def post_activity(
                                     log.error(f"      ActivityLine: {json.dumps(activity_line)}")
                                     return False
                                 else:
-                                    log.debug(
-                                        f"      Backend echoed pre-existing "
-                                        f"Taskcounter={resp_tc} but content differs "
-                                        f"(resp='{resp_ltxa1}'/{resp_date}, "
+                                    # Content differs → the backend silently dropped the
+                                    # new entry and is echoing the most-recently-created
+                                    # entry in the session.  Treat as a silent drop, not
+                                    # a success.  (Previous "treating as successful post"
+                                    # was incorrect — verified against production logs.)
+                                    log.error(
+                                        f"  ✗  {event['subject'][:50]} — backend echoed "
+                                        f"pre-existing Taskcounter={resp_tc} but content "
+                                        f"differs (resp='{resp_ltxa1}'/{resp_date}, "
                                         f"sent='{activity_line.get('Ltxa1','')[:40]}'/{workdate})"
-                                        f" — treating as successful post."
+                                        f" — treating as SILENT DROP."
                                     )
+                                    if msgtxt:
+                                        log.error(f"      Backend said: [{msgno}] {msgtxt}")
+                                    log.error(f"      ActivityLine: {json.dumps(activity_line)}")
+                                    return False
 
                 except Exception:
                     pass

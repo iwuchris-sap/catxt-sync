@@ -1,1 +1,1 @@
-{"version": "1.2.6", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed add_keyword for auto_mapping entries (NameError + copy bug); added AI Transformation and Training for goals keywords"}
+{"version": "1.2.7", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed CC entry silent drops: Taskcomponent now correctly WORKSTAT for cost-centre entries (was WORKHRS); fixed false-positive success detection when backend echoes pre-existing Taskcounter"}
