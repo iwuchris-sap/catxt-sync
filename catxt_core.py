@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # Version
 # ══════════════════════════════════════════════════════════════════════════════
 
-APP_VERSION = "1.2.7"
+APP_VERSION = "1.2.8"
 
 
 def check_for_update(config: dict) -> dict:
@@ -2094,10 +2094,12 @@ def post_activity(
         obart = "PR"
         objnr = "PR" + rproj[-8:]
     elif is_sd:
-        # Sales Document receiving object: Obart="SD",
-        # Objnr = "SD" + 10-digit order + 6-digit item (rkdauf + rkdpos).
-        obart = "SD"
-        objnr = "SD" + rkdauf + rkdpos
+        # Sales Document receiving object: Obart="VB" (Vertriebsbeleg),
+        # Objnr = "VB" + 10-digit order (rkdauf) + 6-digit item (rkdpos).
+        # HAR capture (Sep 18 2026) confirmed "VB" — the previous "SD" value
+        # caused silent drops on all Sales Order entries.
+        obart = "VB"
+        objnr = "VB" + rkdauf + rkdpos
     else:
         obart = "KS"
         objnr = "KS0001" + rkostl

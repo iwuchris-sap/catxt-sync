@@ -1,1 +1,1 @@
-{"version": "1.2.7", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed CC entry silent drops: Taskcomponent now correctly WORKSTAT for cost-centre entries (was WORKHRS); fixed false-positive success detection when backend echoes pre-existing Taskcounter"}
+{"version": "1.2.8", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed Sales Order silent drops: Obart now correctly VB (was SD); all 9 CC/SD/ICON entry types HAR-verified"}
