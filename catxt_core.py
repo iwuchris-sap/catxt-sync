@@ -2278,22 +2278,22 @@ def post_activity(
                                     log.error(f"      ActivityLine: {json.dumps(activity_line)}")
                                     return False
                                 else:
-                                    # Content differs → the backend silently dropped the
-                                    # new entry and is echoing the most-recently-created
-                                    # entry in the session.  Treat as a silent drop, not
-                                    # a success.  (Previous "treating as successful post"
-                                    # was incorrect — verified against production logs.)
-                                    log.error(
-                                        f"  ✗  {event['subject'][:50]} — backend echoed "
+                                    # Content differs → the backend is echoing a
+                                    # pre-existing entry in results[0] but the new
+                                    # entry WAS still created (confirmed in production
+                                    # on 2026-09-21: TechEd + NDL Team Meeting appeared
+                                    # in CATXT even though results[0] was TC=0313955242).
+                                    # Treat as success; log a warning for visibility.
+                                    log.warning(
+                                        f"  ⚠  {event['subject'][:50]} — backend echoed "
                                         f"pre-existing Taskcounter={resp_tc} but content "
                                         f"differs (resp='{resp_ltxa1}'/{resp_date}, "
                                         f"sent='{activity_line.get('Ltxa1','')[:40]}'/{workdate})"
-                                        f" — treating as SILENT DROP."
+                                        f" — treating as successful post (entry is created)."
                                     )
                                     if msgtxt:
-                                        log.error(f"      Backend said: [{msgno}] {msgtxt}")
-                                    log.error(f"      ActivityLine: {json.dumps(activity_line)}")
-                                    return False
+                                        log.warning(f"      Backend said: [{msgno}] {msgtxt}")
+                                    return True
 
                 except Exception:
                     pass
