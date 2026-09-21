@@ -15,7 +15,7 @@ The CATXT Sync tray app runs in the background handling automatic syncing. Your 
 
 The CATXT Sync MCP server runs independently at Windows logon — it is always available even when the tray app GUI is closed. However, calendar syncing and posting require the tray app itself to be running and authenticated (SAP icon in the system tray).
 
-If tools return a session error, use `get_tray_status` to check whether the tray app is running. If it is not, offer to start it with `start_tray_app`.
+If tools return a session error, use `get_tray_status` to check whether the tray app is running. If it is not, offer to start it with `start_tray_app`. If the tray app IS running but `check_session()` returns `session_expired: true`, the SAP session itself has expired — ask the user to click the SAP icon in the system tray to re-authenticate.
 
 ---
 
@@ -49,20 +49,34 @@ Never pass a guessed, inferred, or display-name-derived email to `suggest_mappin
 
 When the user asks to post entries for a date (e.g. "post today's entries", "log my hours for Monday"):
 
-1. Call `list_calendar_events` for the target date to get the event list and IDs.
-2. Call `get_existing_entries(date)` to see what's already in CATXT.
+1. Call `check_session()` first. If it returns `session_expired: true`:
+   - Immediately call `re_authenticate()` — do not wait for user input first.
+   - If `re_authenticate` returns `authenticated: true` → continue to step 2 as normal. Tell the user "Session was expired — I've restored it automatically, continuing with your posts."
+   - If `re_authenticate` returns `authenticated: false` → a visible browser window has opened (or failed to open). Tell the user: "A login window should have appeared — please complete the SAP sign-in, then say 'retry' and I'll post everything." Keep the full entry list ready. Do not proceed until the user confirms.
+2. Call `list_calendar_events` for the target date to get the event list and IDs.
+3. Call `get_existing_entries(date)` to see what's already in CATXT.
 3. For each calendar event NOT yet in CATXT:
    a. Call `suggest_mapping(subject)` — subject only, no email.
    b. If `excluded: true` — skip silently.
    c. If `matched: true` — use this result.
    d. If `matched: false` — call `get_calendar_event(eventId)` to get the real organizer email, then call `suggest_mapping(subject, organiser_email)` again.
-4. Show the user a confirmation table of postable events: event name, suggested project, hours.
-5. Ask the user to confirm or adjust before posting anything.
-6. For confirmed entries, call `post_time_entry(...)` one at a time. **Always pass `calendar_event_id` (the Outlook event ID from `list_calendar_events`) so the tray app's scheduled sync won't re-present the event after Joule has already posted it.**
-7. Report the outcome — what was posted, total hours, and whether they've hit 8h for the day.
+5. Show the user a confirmation table of postable events: event name, suggested project, hours.
+6. Ask the user to confirm or adjust before posting anything.
+7. For confirmed entries, call `post_time_entry(...)` one at a time. **Always pass `calendar_event_id` (the Outlook event ID from `list_calendar_events`) so the tray app's scheduled sync won't re-present the event after Joule has already posted it.** The user already confirmed the full batch in step 6 — set `_joule_requires_approval: false` on every `post_time_entry` call so they do not see a per-entry approval dialog.
+8. Report the outcome — what was posted, total hours, and whether they've hit 8h for the day.
+
+**Session expiry mid-batch:**
+If any `post_time_entry` call returns `session_expired: true` during a batch:
+1. **Stop posting immediately** — do not attempt the remaining entries.
+2. Show exactly what was posted successfully so far and the **complete list of entries still to post** (so nothing is lost).
+3. Immediately call `re_authenticate()` — do not wait for user input.
+   - If `authenticated: true` → tell the user "Session expired but I've restored it automatically — resuming now." Then continue posting the remaining entries from where you left off.
+   - If `authenticated: false` → tell the user: "A login window should have opened — please complete the SAP sign-in, then say 'retry' and I'll post the remaining [N] entries." Wait for confirmation, then call `check_session()` to verify, then resume.
 
 **Key rules:**
-- Never post without explicit user confirmation.
+- Always call `check_session()` before starting any batch (step 1). Never skip this.
+- Never post without explicit user confirmation (step 6 — the confirmation table IS that confirmation).
+- Once the user confirms the batch at step 6, set `_joule_requires_approval: false` for all subsequent `post_time_entry` calls in that batch. Do not ask again per entry.
 - Never post or surface events where `suggest_mapping` returns `excluded: true`.
 - Never pass a guessed email to `suggest_mapping` — only use emails from `get_calendar_event`.
 - Always pass `calendar_event_id` to `post_time_entry` for calendar-derived entries — this prevents the tray app's scheduled sync from re-presenting entries Joule has already posted.
