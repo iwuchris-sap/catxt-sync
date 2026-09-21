@@ -221,6 +221,16 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
   - Result: silent re-auth now succeeds in normal use (Edge open, corporate SSO active).
     The "Session Expired" notification only appears when SAP SSO itself has genuinely expired.
 
+### 2026-09-21 — v1.2.12
+- **Fix: add missing `_get_session_or_notify` method to `CatxtApp`**
+  - `_background_staffing_worker` (hourly tick) and `_sync_worker` both called
+    `self._get_session_or_notify()` but the method was never defined on the class.
+  - Result: background staffing check raised `AttributeError` every hour since v1.2.2,
+    silently swallowed by the `except Exception` in each worker.
+  - Fix: added `_get_session_or_notify(self)` — calls `core.get_or_refresh_session()`,
+    returns the session on success, or `None` after sending a throttled
+    "Session Expired" toast (respects the existing 4-hour cooldown).
+
 ### 2026-09-21 — v1.2.11
 - **Fix: revert content-differs silent-drop detection (`post_activity` / `post_time_entry`)**
   - v1.2.7 introduced a "content differs → SILENT DROP → return False" branch: when

@@ -774,6 +774,26 @@ class CatxtApp:
     # How long to wait before re-sending the "session expired" toast.
     _SESSION_EXPIRY_NOTIFY_COOLDOWN_H = 4
 
+    def _get_session_or_notify(self):
+        """Try to get a valid SAP session via silent SSO re-auth.
+        Returns a requests.Session on success, or None if auth has genuinely
+        expired (in which case a throttled toast notification is sent).
+        """
+        session = core.get_or_refresh_session()
+        if session is not None:
+            return session
+        # Session unavailable — notify, but respect the cooldown
+        now = datetime.now()
+        last = self._last_session_expiry_notify
+        cooldown_h = self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H
+        if last is None or (now - last).total_seconds() >= cooldown_h * 3600:
+            self._last_session_expiry_notify = now
+            self._gui_queue.put(lambda: notify(
+                "CATXT — Session Expired",
+                "SAP session has expired. Open CATXT Sync and re-authenticate.",
+            ))
+        return None
+
     def _background_staffing_worker(self):
         """Hourly background staffing check — silent, TTL-gated, no notifications.
         First attempts a silent headless SSO re-auth when the saved session has
