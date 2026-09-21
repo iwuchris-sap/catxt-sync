@@ -109,6 +109,99 @@ def _get_session():
 # Tool implementations
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _tool_re_authenticate(args: dict) -> str:
+    """Attempt to restore the SAP session without requiring manual tray-icon interaction.
+
+    Two-step approach:
+    1. Silent headless re-auth via the live Edge profile (invisible, instant) —
+       succeeds whenever corporate SSO (Azure AD) is still active.
+    2. If that fails, opens a visible browser window so the user can complete
+       the SAP login (MFA, credentials, etc.) without leaving Joule.
+       The tool waits up to 120 seconds for authentication to complete.
+
+    Returns authenticated=true on success so the caller can immediately retry
+    any queued post_time_entry calls without further user action.
+    Returns authenticated=false with requires_manual_auth=true only if the
+    visible browser also fails or times out.
+    """
+    # Step 1: try silent headless re-auth first (no visible browser)
+    log.info("re_authenticate: attempting silent headless SSO re-auth.")
+    session = core.get_or_refresh_session(headless_only=True)
+    if session is not None:
+        log.info("re_authenticate: silent SSO re-auth succeeded.")
+        return json.dumps({
+            "authenticated": True,
+            "method":        "silent",
+            "message":       "Session restored silently — ready to post.",
+        })
+
+    # Step 2: silent failed — open a visible browser for full login
+    log.info("re_authenticate: silent re-auth failed — launching visible browser.")
+    try:
+        cookies = core.authenticate_via_browser(headless_only=False)
+        if cookies:
+            log.info("re_authenticate: visible-browser re-auth succeeded.")
+            return json.dumps({
+                "authenticated": True,
+                "method":        "browser",
+                "message":       "Session restored via browser login — ready to post.",
+            })
+    except Exception as exc:
+        log.warning(f"re_authenticate: visible-browser re-auth failed: {exc}")
+
+    return json.dumps({
+        "authenticated":        False,
+        "requires_manual_auth": True,
+        "message": (
+            "Automatic re-authentication failed. Please click the SAP icon "
+            "in the system tray to sign in manually, then say the word and "
+            "I will retry."
+        ),
+    })
+
+
+def _tool_check_session(args: dict) -> str:
+    """Lightweight SAP session health check.
+
+    Calls the Userinfo endpoint to confirm the session is live before starting
+    a batch of posts.  Returns session_expired=True if the session has expired
+    so callers can ask the user to re-authenticate before attempting any posts.
+    """
+    try:
+        session = _get_session()
+    except RuntimeError as exc:
+        return json.dumps({
+            "valid":           False,
+            "session_expired": True,
+            "error":           str(exc),
+            "action":          "Re-authenticate via the SAP icon in the system tray, then retry.",
+        })
+    try:
+        r = session.get(f"{core.BASE_URL}/Userinfo", timeout=10)
+        if r.status_code == 200:
+            d = (r.json().get("d") or {})
+            results = d.get("results", [])
+            user = results[0] if results else d
+            return json.dumps({
+                "valid": True,
+                "pernr": user.get("Pernr", ""),
+                "kostl": user.get("Kostl", ""),
+                "name":  user.get("Sname", ""),
+            })
+        return json.dumps({
+            "valid":           False,
+            "session_expired": True,
+            "error":           f"Userinfo returned HTTP {r.status_code} — session may have expired.",
+            "action":          "Re-authenticate via the SAP icon in the system tray, then retry.",
+        })
+    except Exception as exc:
+        return json.dumps({
+            "valid":  False,
+            "error":  f"Session check failed: {exc}",
+            "action": "Re-authenticate via the SAP icon in the system tray, then retry.",
+        })
+
+
 def _tool_get_mappings(args: dict) -> str:
     config = core.load_config()
     result = []
@@ -324,11 +417,24 @@ def _tool_post_time_entry(args: dict) -> str:
     # re-present it in the review dialog.
     calendar_event_id = args.get("calendar_event_id", "")
 
-    session = _get_session()
+    try:
+        session = _get_session()
+    except RuntimeError as exc:
+        return json.dumps({
+            "success":         False,
+            "session_expired": True,
+            "error":           str(exc),
+            "action":          "Re-authenticate via the SAP icon in the system tray, then retry.",
+        })
     config  = core.load_config()
     csrf    = core.get_csrf_token(session)
     if not csrf:
-        return json.dumps({"success": False, "error": "Could not obtain CSRF token."})
+        return json.dumps({
+            "success":         False,
+            "session_expired": True,
+            "error":           "Could not obtain CSRF token — SAP session has likely expired.",
+            "action":          "Re-authenticate via the SAP icon in the system tray, then retry.",
+        })
 
     d = date.fromisoformat(target_date)
 
@@ -1001,6 +1107,35 @@ _TOOLS = {
                 },
             },
             "required": ["start_date"],
+        },
+    },
+    "re_authenticate": {
+        "fn": _tool_re_authenticate,
+        "description": (
+            "Attempt to restore a lapsed SAP CATXT session without requiring the user "
+            "to click the tray icon. Tries silent headless SSO first (succeeds instantly "
+            "when corporate SSO is still active). If that fails, opens a visible browser "
+            "window for full login and waits up to 120 s for the user to authenticate. "
+            "Returns authenticated=true on success so post_time_entry calls can be retried "
+            "immediately. Only returns authenticated=false if the visible browser also fails "
+            "or times out — in that case, ask the user to use the tray icon manually."
+        ),
+        "inputSchema": {
+            "type": "object", "properties": {}, "required": [],
+        },
+    },
+    "check_session": {
+        "fn": _tool_check_session,
+        "description": (
+            "Validate that the SAP CATXT session is live and ready to accept posts. "
+            "Calls the Userinfo endpoint — returns valid=true with pernr/kostl/name on "
+            "success, or valid=false with session_expired=true and an action message if "
+            "the session has expired. "
+            "Always call this before starting a batch of post_time_entry calls so that "
+            "a stale session is caught before any entries are attempted, not mid-batch."
+        ),
+        "inputSchema": {
+            "type": "object", "properties": {}, "required": [],
         },
     },
     "get_tray_status": {

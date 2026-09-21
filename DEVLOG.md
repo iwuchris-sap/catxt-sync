@@ -221,6 +221,45 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
   - Result: silent re-auth now succeeds in normal use (Edge open, corporate SSO active).
     The "Session Expired" notification only appears when SAP SSO itself has genuinely expired.
 
+### 2026-09-21 — v1.2.10
+- **Add: `re_authenticate` MCP tool — full automatic session recovery**
+  - Two-step approach: (1) silent headless SSO re-auth via live Edge profile
+    (succeeds invisibly when corporate SSO is still active); (2) if that fails,
+    opens a visible browser window for full SAP login and waits up to 120 s.
+  - Returns `authenticated: true` on success so the skill can immediately
+    resume posting without any further user action.
+  - Returns `authenticated: false` with `requires_manual_auth: true` only if
+    both steps fail — in that case the user still needs the tray icon.
+  - Covers the common case (Azure SSO still live, only SAP cookies expired)
+    completely automatically. Full SAP SSO expiry (typically once per week)
+    opens a browser window — the user logs in once and everything resumes.
+- **Fix: SKILL.md — `re_authenticate` used in pre-flight and mid-batch recovery**
+  - Pre-flight: if `check_session()` returns expired, call `re_authenticate()`
+    automatically before telling the user anything. If it succeeds silently,
+    the user never even knows the session was expired.
+  - Mid-batch: if `session_expired: true` is returned mid-batch, call
+    `re_authenticate()` automatically and resume posting if successful.
+
+### 2026-09-21 — v1.2.9
+- **Add: `check_session` MCP tool — pre-flight SAP session validation**
+  - New tool calls the Userinfo endpoint to confirm the SAP session is live before
+    a batch of posts begins. Returns `valid=true` with pernr/kostl/name on success,
+    or `valid=false` with `session_expired=true` and an `action` message on failure.
+  - Previously, session expiry was only discovered when the first post failed
+    mid-batch, causing Joule to lose track of the remaining queued entries.
+- **Fix: structured `session_expired` errors in `post_time_entry`**
+  - Previously, if `_get_session()` raised a RuntimeError (expired session), the
+    error propagated as a raw exception string with no machine-readable flag.
+  - Now returns `{"success": false, "session_expired": true, "action": "..."}` so
+    the skill can detect the specific failure mode and handle it gracefully.
+  - Same structured response returned if CSRF token fetch fails (also session-related).
+- **Fix: SKILL.md — session pre-check and mid-batch recovery**
+  - Skill now calls `check_session()` as step 1 of every posting workflow. If the
+    session is expired before the batch starts, the user is told to re-authenticate
+    immediately — no posts are attempted.
+  - If session expires mid-batch, skill stops, shows exactly what succeeded and what
+    still needs posting, and resumes from where it left off once the user re-auths.
+
 ### 2026-09-18 — v1.2.8
 - **Fix: Sales Order entries silently dropped (`Obart` was `"SD"`, must be `"VB"`)**
   - CATXT backend silently drops Sales Order (SD) entries when `Obart = "SD"`. The correct

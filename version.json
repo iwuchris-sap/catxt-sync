@@ -1,1 +1,1 @@
-{"version": "1.2.8", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fixed Sales Order silent drops: Obart now correctly VB (was SD); all 9 CC/SD/ICON entry types HAR-verified"}
+{"version": "1.2.10", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Add re_authenticate tool: silent SSO first, visible browser fallback — Joule can now fully restore expired sessions without user clicking the tray icon"}
