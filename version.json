@@ -1,1 +1,1 @@
-{"version": "1.2.10", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Add re_authenticate tool: silent SSO first, visible browser fallback — Joule can now fully restore expired sessions without user clicking the tray icon"}
+{"version": "1.2.11", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fix: revert content-differs silent-drop detection — backend echoes old TC in results[0] but entry IS created (confirmed prod 2026-09-21)"}

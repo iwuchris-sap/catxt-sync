@@ -221,6 +221,18 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
   - Result: silent re-auth now succeeds in normal use (Edge open, corporate SSO active).
     The "Session Expired" notification only appears when SAP SSO itself has genuinely expired.
 
+### 2026-09-21 — v1.2.11
+- **Fix: revert content-differs silent-drop detection (`post_activity` / `post_time_entry`)**
+  - v1.2.7 introduced a "content differs → SILENT DROP → return False" branch: when
+    `Activity.results[0]` echoed a pre-existing `Taskcounter` but with different `Ltxa1`/date/qty,
+    the code concluded the new entry was not created and returned failure.
+  - Production confirmation 2026-09-21: TechEd (0.5 h) and NDL Team Meeting (0.5 h) on Sep 17
+    both appeared in CATXT even though `results[0]` was TC=0313955242 (a pre-existing entry).
+    The backend creates the new entry but echoes an old one in `results[0]` of the response body.
+  - Revert: the content-differs branch now logs a `WARNING` ("entry IS created") and returns `True`.
+    Only the true-duplicate path (same `Ltxa1` + date + qty) still returns `False`.
+  - The empty-`Activity.results` check (genuine silent drop) is unchanged and still returns `False`.
+
 ### 2026-09-21 — v1.2.10
 - **Add: `re_authenticate` MCP tool — full automatic session recovery**
   - Two-step approach: (1) silent headless SSO re-auth via live Edge profile
