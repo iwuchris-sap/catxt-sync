@@ -171,7 +171,12 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
 - **Docs: customer names and internal identifiers removed from public docs**
 - **Docs: SETUP-GUIDE.md added to zip**
 
-> To release: update `VERSION` in `package.py` and `version:` in `skills/catxt-sync/SKILL.md` + `catxt-sync.md`, then run `python package.py`.
+> **Release checklist (every version bump):**
+> 1. Bump `APP_VERSION` in `catxt_core.py` (single source of truth)
+> 2. Update `version.json` — `version` + `changes` summary
+> 3. **Add a DEVLOG entry here** with date, version, and technical detail for every fix/feature
+> 4. Run `python package.py` to build the zip
+> 5. `git add catxt_core.py version.json DEVLOG.md && git commit -m "vX.Y.Z: ..." && git push`
 
 ---
 
