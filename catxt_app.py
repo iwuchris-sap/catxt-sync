@@ -162,6 +162,13 @@ class CatxtApp:
         # First tick after 2 minutes to let auth and startup settle.
         self._root.after(2 * 60 * 1000, self._auto_sync_tick)
 
+        # Trigger-file poll — fires every 60 seconds to check whether the
+        # Windows Task Scheduler left a .sync_trigger file (written by a
+        # second instance launched with --scheduled while we were already
+        # running).  Consuming the file calls _start_scheduled_sync so the
+        # auto-post runs without the user having to do anything.
+        self._root.after(60 * 1000, self._trigger_check_tick)
+
         self._root.mainloop()
 
     # ── Tray menu ─────────────────────────────────────────────────────────────
@@ -793,6 +800,26 @@ class CatxtApp:
                 "SAP session has expired. Open CATXT Sync and re-authenticate.",
             ))
         return None
+
+    # ── Trigger-file scheduled sync ───────────────────────────────────────────
+
+    # Written by a second instance launched with --scheduled while this
+    # instance is already running (see __main__ instance guard below).
+    _TRIGGER_FILE = Path(__file__).parent / ".sync_trigger"
+    _TRIGGER_CHECK_INTERVAL_MS = 60 * 1000  # check every 60 seconds
+
+    def _trigger_check_tick(self):
+        """Fires every 60 s. Consumes .sync_trigger if present and kicks off
+        the scheduled sync so the Windows Task Scheduler job works correctly
+        even when the tray app is already running."""
+        if self._TRIGGER_FILE.exists():
+            try:
+                self._TRIGGER_FILE.unlink()
+                log.info("Trigger file detected — starting scheduled sync.")
+                self._start_scheduled_sync()
+            except Exception as exc:
+                log.warning(f"Trigger file error: {exc}")
+        self._root.after(self._TRIGGER_CHECK_INTERVAL_MS, self._trigger_check_tick)
 
     def _background_staffing_worker(self):
         """Hourly background staffing check — silent, TTL-gated, no notifications.
@@ -1601,7 +1628,21 @@ if __name__ == "__main__":
         _lock_fh.flush()
     except OSError:
         _lock_fh.close()
-        log.info("Another CATXT Sync instance is already running — exiting.")
+        if "--scheduled" in sys.argv:
+            # Tray is already running — drop a trigger file so the running
+            # instance picks it up on its next 60-second tick and fires
+            # _start_scheduled_sync automatically.
+            _trigger = Path(__file__).parent / ".sync_trigger"
+            try:
+                _trigger.touch()
+                log.info(
+                    "Another CATXT Sync instance is already running — "
+                    "wrote trigger file for scheduled sync."
+                )
+            except Exception as _e:
+                log.warning(f"Could not write trigger file: {_e}")
+        else:
+            log.info("Another CATXT Sync instance is already running — exiting.")
         sys.exit(0)
     # _lock_fh stays open (and locked) for the entire process lifetime.
     # ─────────────────────────────────────────────────────────────────────────

@@ -1,1 +1,1 @@
-{"version": "1.2.12", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fix: add missing _get_session_or_notify method to CatxtApp — background staffing sync was failing every hour with AttributeError"}
+{"version": "1.2.13", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fix: scheduled task now triggers sync when tray is already running — instance guard writes .sync_trigger file; running tray picks it up within 60 s"}

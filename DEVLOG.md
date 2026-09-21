@@ -221,6 +221,21 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
   - Result: silent re-auth now succeeds in normal use (Edge open, corporate SSO active).
     The "Session Expired" notification only appears when SAP SSO itself has genuinely expired.
 
+### 2026-09-21 — v1.2.13
+- **Fix: scheduled task now triggers sync when tray app is already running**
+  - The Windows Task Scheduler job launches `catxt_app.py --scheduled` daily.
+    When the tray is already running, the instance guard was exiting immediately
+    without doing anything — so the scheduled sync never fired on any normal
+    workday where the tray had been started at login.
+  - Fix (two parts):
+    1. **Instance guard** (`__main__`): if `--scheduled` is in `sys.argv` and
+       the running-instance lock is held, write `.sync_trigger` (a zero-byte
+       file in the app directory) before exiting, instead of just exiting silently.
+    2. **Trigger poll** (`_trigger_check_tick`): a new 60-second tick checks
+       for `.sync_trigger`, deletes it, and calls `_start_scheduled_sync()`.
+  - Result: within ≤ 60 seconds of the Task Scheduler firing, the running tray
+    auto-posts all matched entries — no user action required.
+
 ### 2026-09-21 — v1.2.12
 - **Fix: add missing `_get_session_or_notify` method to `CatxtApp`**
   - `_background_staffing_worker` (hourly tick) and `_sync_worker` both called
