@@ -40,8 +40,8 @@ Required Activity line fields (will silently fail without these):
 | `Zz_location` | `"R"` (Remote) for WBS entries — **required, backend silently drops Activity line without it** |
 | `Skostl` | Sending cost centre (`"0800080808"`) — required for WBS entries, blank for CC |
 | `Rproj` | 24-char internal WBS number for project entries; `"000000000000000000000000"` (24 zeros) for CC |
-| `Obart` | `"PR"` for WBS, `"KS"` for cost centre |
-| `Objnr` | `"PR" + rproj[-8:]` for WBS (e.g. `"PR01386783"`); `"KS0001" + rkostl` for CC |
+| `Obart` | `"PR"` for WBS, `"KS"` for cost centre, `"VB"` for Sales Orders |
+| `Objnr` | `"PR" + rproj[-8:]` for WBS (e.g. `"PR01386783"`); `"KS0001" + rkostl` for CC; `"VB" + rkdauf + rkdpos` for Sales Orders |
 | `Zcpr_extid` | CPR project root ID (e.g. `"CPS.40001234"`) — derived from `wbs` field in config |
 | `Zcpr_objgextid` | Full CPR task ID (e.g. `"CPS.40012580.00002"`) — IS the `wbs` field in config |
 | `Zcpr_objtype` | Always `"TTO"` for task objects |
@@ -215,6 +215,54 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
   - The temp dir is a few MB, lives for seconds, and is always cleaned up on success or failure.
   - Result: silent re-auth now succeeds in normal use (Edge open, corporate SSO active).
     The "Session Expired" notification only appears when SAP SSO itself has genuinely expired.
+
+### 2026-09-18 — v1.2.8
+- **Fix: Sales Order entries silently dropped (`Obart` was `"SD"`, must be `"VB"`)**
+  - CATXT backend silently drops Sales Order (SD) entries when `Obart = "SD"`. The correct
+    SAP object type for a Vertriebsbeleg (Sales Document) is `"VB"`, with
+    `Objnr = "VB" + rkdauf (10-char) + rkdpos (6-char)`.
+  - Confirmed via HAR capture of a successful manual Fiori UI post against a Sales Order entry.
+  - Fixed in `catxt_core.py` — `obart` and `objnr` construction for the `is_sd` branch.
+  - This bug would have silently dropped every Sales Order time entry without any error message.
+
+### 2026-09-18 — v1.2.7
+- **Fix: CC entries silently dropped (`Taskcomponent` was `"WORKHRS"`, must be `"WORKSTAT"`)**
+  - CATXT backend silently drops cost-centre entries (CC) when `Taskcomponent = "WORKHRS"`.
+    The Fiori UI sends `"WORKSTAT"` for all CC entries (MEET, EDUC, ICON).
+    WBS and SD entries correctly use `"WORKHRS"`.
+  - Root cause: a previous code change overrode the original correct `"WORKSTAT"` to `"WORKHRS"`
+    universally, citing "the UI always selects Work Hrs" — which was incorrect per HAR evidence.
+  - ICON (`tasktype == "ICON"`) retains `"WORKHRS"` — it requires WORKHRS and silently rejects
+    WORKSTAT (separate backend rule, unchanged from ZCATSXT-225 fix).
+  - Fix in `catxt_core.py`: `taskcomponent` default now branches on entry type.
+  - Confirmed via HAR capture across all 9 configured entry types (MEET/×4, EDUC/×2, ICON/×3, SD/×1).
+- **Fix: false-positive success when backend echoes pre-existing `Taskcounter`**
+  - When the backend silently drops a new entry it returns the most recently-created entry
+    in `Activity.results` instead of empty results. The previous code treated a mismatched echo
+    (different `Ltxa1` or `Workdate` to what was sent) as a successful new post.
+  - Fix: mismatched echo is now correctly logged as `✗ SILENT DROP` and returns `False`.
+
+### 2026-09-18 — v1.2.6
+- **Fix: `add_keyword` NameError + copy bug for `auto_mapping` entries**
+  - `_tool_add_keyword` raised a `NameError` when adding keywords to CC-only (`auto_mapping`)
+    entries because the variable holding the matched mapping was out of scope.
+  - Secondary bug: new keyword entries shared a reference to the original mapping dict rather
+    than a copy, so mutations to one entry affected others.
+  - Fix: scope corrected; new entries are now built from `dict(m)` (shallow copy).
+
+### 2026-09-18 — v1.2.5
+- **Fix: LR(093) Personnel number locked — serialise all `post_time_entry` calls**
+  - CATXT backend acquires an exclusive record lock per PERNR during each batch write.
+    Concurrent POSTs to the same PERNR are rejected with `LR(093): Personnel number locked`.
+  - Fix: `_post_lock` (`asyncio.Lock`) added to `catxt_mcp_server.py`. All `post_time_entry`
+    calls acquire the lock before posting and release it after a `_POST_SLEEP_S = 1.5` s
+    sleep, giving the backend time to commit and release its own record lock.
+  - `_SERIALISED_TOOLS` set documents which tools hold the lock.
+- **Fix: remove per-entry Userinfo fetch from `post_time_entry`**
+  - Each call was triggering a `GET /Userinfo` + `HEAD /$batch` round-trip before posting,
+    adding ~1 s of latency per entry and causing unnecessary session churn.
+  - PERNR and KOSTL are now loaded from the config cache (written by `detect_pernr()` at
+    tray-app startup) rather than fetched fresh on every post.
 
 ### 2026-09-18 — v1.2.4
 - **Fix: Playwright Sync API conflict in MCP server (`catxt_mcp_server.py`)**
