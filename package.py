@@ -25,14 +25,17 @@ What's excluded (personal data / build artefacts):
     - SUBMISSION_NARRATIVE.md, DEVLOG.md (internal docs)
 """
 
-import sys
+import re
 import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).parent
-# Single source of truth: APP_VERSION in catxt_core.py
-sys.path.insert(0, str(HERE))
-from catxt_core import APP_VERSION as VERSION  # noqa: E402
+# Read APP_VERSION directly from catxt_core.py as text rather than importing the
+# module.  Importing catxt_core pulls in requests, playwright, and other heavy
+# dependencies — package.py only needs a version string and should run with the
+# standard library alone.
+_src = (HERE / "catxt_core.py").read_text(encoding="utf-8")
+VERSION = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', _src, re.MULTILINE).group(1)
 
 OUTPUT = HERE / f"CATXT-Sync-{VERSION}.zip"
 
