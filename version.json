@@ -1,1 +1,1 @@
-{"version": "1.2.13", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fix: scheduled task now triggers sync when tray is already running — instance guard writes .sync_trigger file; running tray picks it up within 60 s"}
+{"version": "1.2.14", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fix: background staffing tick no longer spawns visible browser — _get_session_or_notify now uses headless_only=True"}

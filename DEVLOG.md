@@ -221,6 +221,17 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
   - Result: silent re-auth now succeeds in normal use (Edge open, corporate SSO active).
     The "Session Expired" notification only appears when SAP SSO itself has genuinely expired.
 
+### 2026-09-22 — v1.2.14
+- **Fix: background staffing tick no longer spawns a visible browser window**
+  - `_get_session_or_notify` was calling `core.get_or_refresh_session()` without
+    `headless_only=True`. When SAP cookies expired during an hourly staffing tick,
+    this fell through to the full visible-browser auth path — spawning an Edge
+    window in the background once per hour.
+  - Fix: pass `headless_only=True`. Background ticks now attempt silent SSO only;
+    if that fails the user receives a throttled toast notification and the tick
+    skips gracefully. A visible browser is only ever opened by user-initiated
+    actions (tray menu Re-authenticate, or the `re_authenticate` MCP tool).
+
 ### 2026-09-21 — v1.2.13
 - **Fix: scheduled task now triggers sync when tray app is already running**
   - The Windows Task Scheduler job launches `catxt_app.py --scheduled` daily.

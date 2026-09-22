@@ -786,10 +786,12 @@ class CatxtApp:
         Returns a requests.Session on success, or None if auth has genuinely
         expired (in which case a throttled toast notification is sent).
         """
-        session = core.get_or_refresh_session()
+        session = core.get_or_refresh_session(headless_only=True)
         if session is not None:
             return session
-        # Session unavailable — notify, but respect the cooldown
+        # Headless SSO failed — notify, but respect the cooldown.
+        # Never launch a visible browser from a background tick; that is
+        # only appropriate for user-initiated actions.
         now = datetime.now()
         last = self._last_session_expiry_notify
         cooldown_h = self._SESSION_EXPIRY_NOTIFY_COOLDOWN_H
