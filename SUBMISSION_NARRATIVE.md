@@ -129,15 +129,25 @@ to be built and shipped.
 
 ## Ease of Adoption
 
+### Zero-interaction mode
+
+For users who want completely hands-free posting, CATXT Sync includes a built-in
+scheduler. Configure a daily run time in Settings → Schedule and register the task
+with one click. At the configured time, the Windows Task Scheduler fires, the tray
+app auto-posts every matched entry, and a toast notification confirms the result —
+no typing, no confirmation, no user action required.
+
 ### For the end user
 
-Once set up, the daily interaction is one sentence. The skill handles:
+For interactive use, the daily interaction is one sentence. The skill handles:
 
 - Already-posted entries (skips duplicates automatically)
 - Days where 8h is already logged ("You're at 8h for today — looks complete")
 - Meetings with no keyword match ("I couldn't match this meeting — which project
   should I use, or skip it?")
-- Session expiry ("The tray app needs to re-authenticate — check the system tray")
+- Session expiry (Joule calls `re_authenticate` automatically — silently restores
+  the SAP session via SSO in the common case; only prompts the user if the full
+  corporate SSO has also expired, which happens at most once a week)
 
 ### For setup
 
@@ -174,7 +184,9 @@ No Python, no command line, no IT ticket.
 │  ├── get_sync_status                        │
 │  ├── clear_sync_history                     │
 │  ├── get_tray_status                        │
-│  └── start_tray_app                         │
+│  ├── start_tray_app                         │
+│  ├── check_session                          │
+│  └── re_authenticate                        │
 │                                             │
 │  Tray App                                   │
 │  ├── Outlook calendar (OWA interception)    │
