@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 # Version
 # ══════════════════════════════════════════════════════════════════════════════
 
-APP_VERSION = "1.2.14"
+APP_VERSION = "1.2.15"
 
 
 def check_for_update(config: dict) -> dict:
@@ -253,6 +253,7 @@ def _kill_new_edge_pids(pre_pids: set) -> None:
             subprocess.run(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
                 capture_output=True, timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             log.debug(f"Killed Edge process tree PID={pid}")
         except Exception:
