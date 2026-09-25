@@ -221,6 +221,36 @@ Start the new conversation by reading `catxt_sync.py`, `config.json`, and this f
   - Result: silent re-auth now succeeds in normal use (Edge open, corporate SSO active).
     The "Session Expired" notification only appears when SAP SSO itself has genuinely expired.
 
+### 2026-09-25 — v1.2.16
+- **Fix: suppress all console-window flashes during authentication**
+  - All `subprocess.Popen` calls in the process (including Playwright's internal
+    driver spawning and browser launch) now inherit `CREATE_NO_WINDOW` via a
+    module-level monkey-patch applied at import time in `catxt_core.py`.
+    Applies to both the tray app process and the MCP server process since both
+    import `catxt_core`.
+- **Fix: skip headless auth entirely when Edge is already running**
+  - Previously, every headless auth attempt with Edge open wasted 10+ seconds
+    on a `launch_persistent_context` timeout (profile locked) before giving up.
+  - Fix: `authenticate_via_browser()` checks `_msedge_pids()` before starting
+    Playwright. If Edge is running and `headless_only=True`, returns `None`
+    immediately — no Playwright driver spawned, no subprocess flashes, no delay.
+    If `headless_only=False` (visible auth), Playwright starts but skips
+    Strategy 1 entirely and goes straight to the visible browser.
+- **Feat: 30-minute keep-alive tick (session stays alive during active use)**
+  - `_AUTO_SYNC_INTERVAL_MS` halved from 60 to 30 minutes. The tick's `GET
+    /Userinfo` call resets the SAP server-side session idle timer, preventing
+    the ~60-minute cookie expiry during a normal working day. The staffing sync
+    still respects its own 1-hour TTL — the extra tick just refreshes the session.
+
+### 2026-09-22 — v1.2.15
+- **Fix: suppress console-window flash from Edge PID cleanup (`taskkill`)**
+  - After a successful visible-browser auth, `_kill_new_edge_pids()` killed
+    spawned Edge subprocesses one by one via `subprocess.run(["taskkill", ...])`.
+    Each call opened a brief console window (6 flashes in rapid succession).
+  - Fix: added `creationflags=subprocess.CREATE_NO_WINDOW` to the `taskkill`
+    subprocess call. Each cleanup now runs silently in ~350 ms (vs ~1.1 s with
+    a console window allocated).
+
 ### 2026-09-22 — v1.2.14
 - **Fix: background staffing tick no longer spawns a visible browser window**
   - `_get_session_or_notify` was calling `core.get_or_refresh_session()` without

@@ -1,1 +1,1 @@
-{"version": "1.2.14", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fix: background staffing tick no longer spawns visible browser — _get_session_or_notify now uses headless_only=True"}
+{"version": "1.2.16", "download_url": "https://github.com/iwuchris-sap/catxt-sync/releases/latest", "changes": "Fix: suppress all console-window flashes (CREATE_NO_WINDOW monkey-patch); skip headless auth when Edge is running; 30-min keep-alive tick to prevent session expiry during active use"}
