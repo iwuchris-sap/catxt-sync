@@ -759,7 +759,7 @@ class CatxtApp:
 
     # ── In-process background timer ───────────────────────────────────────────
 
-    _AUTO_SYNC_INTERVAL_MS = 60 * 60 * 1000   # 60 minutes
+    _AUTO_SYNC_INTERVAL_MS = 30 * 60 * 1000   # 30 minutes — keep SAP session alive
 
     def _auto_sync_tick(self):
         """
